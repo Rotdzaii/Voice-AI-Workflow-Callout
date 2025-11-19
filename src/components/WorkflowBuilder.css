@@ -1,0 +1,195 @@
+:root {
+  --wb-border: #e5e7eb;
+  --wb-border-strong: #d1d5db;
+  --wb-bg: #ffffff;
+  --wb-muted: #6b7280;
+  --wb-text: #111827;
+  --wb-shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+  --wb-shadow-md: 0 2px 6px rgba(0,0,0,0.08);
+  --wb-shadow-lg: 0 6px 18px rgba(0,0,0,0.08);
+}
+
+/* Layout */
+.wb-root { width: 100%; height: 100%; position: relative; overflow: hidden; }
+.wb-left {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 260px; z-index: 10;
+  display: flex; flex-direction: column; gap: 12px; padding: 12px;
+  background: var(--wb-bg); border: 1px solid var(--wb-border); border-radius: 10px;
+  box-shadow: var(--wb-shadow-md);
+  overflow-y: auto; overflow-x: hidden;
+}
+.wb-right {
+  position: absolute; right: 0; top: 0; bottom: 0;
+  width: 380px; max-width: 100%;
+  background: var(--wb-bg); border: 1px solid var(--wb-border); border-radius: 10px;
+  padding: 12px; box-shadow: var(--wb-shadow-md);
+  display: flex; flex-direction: column; gap: 10px; z-index: 10; overflow-x: hidden;
+}
+.wb-right-content { overflow-y: auto; overflow-x: hidden; padding-right: 4px; flex: 1; }
+
+/* Tabs strip */
+.wb-tabs-strip {
+  display: flex; gap: 8px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+  flex: 1; min-width: 0; padding: 6px;
+  border: 1px solid var(--wb-border); border-radius: 12px; background: var(--wb-bg);
+  box-shadow: var(--wb-shadow-sm);
+}
+
+/* Utilities */
+.wb-row { display: flex; align-items: center; gap: 8px; }
+.wb-row-6 { display: flex; align-items: center; gap: 6px; }
+.wb-col { display: flex; flex-direction: column; gap: 6px; }
+.wb-divider { height: 1px; background: var(--wb-border); margin: 8px 0; }
+.wb-muted-sm { font-size: 12px; color: var(--wb-muted); }
+.wb-mono-sm { font-family: monospace; font-size: 12px; }
+.wb-title { font-weight: 700; }
+
+/* Utility extensions */
+.wb-flex-1 { flex: 1; }
+.wb-relative { position: relative; }
+.wb-pr-28 { padding-right: 28px; }
+.wb-justify-between { justify-content: space-between; }
+.wb-justify-center { justify-content: center; }
+.wb-items-center { align-items: center; }
+.wb-self-start { align-self: flex-start; }
+.wb-gap-6 { gap: 6px; }
+.wb-gap-8 { gap: 8px; }
+.wb-gap-10 { gap: 10px; }
+.wb-gap-12 { gap: 12px; }
+.wb-mt-6 { margin-top: 6px; }
+.wb-mt-8 { margin-top: 8px; }
+.wb-mb-4 { margin-bottom: 4px; }
+.wb-mb-6 { margin-bottom: 6px; }
+.wb-mb-8 { margin-bottom: 8px; }
+.wb-my-6 { margin-top: 6px; margin-bottom: 6px; }
+.wb-ml-8 { margin-left: 8px; }
+.wb-px-6 { padding-left: 6px; padding-right: 6px; }
+.wb-p-6 { padding: 6px; }
+.wb-lh-20 { line-height: 20px; }
+.wb-lh-28 { line-height: 28px; }
+.wb-text-lg { font-size: 18px; }
+.wb-fw-600 { font-weight: 600; }
+.wb-fw-700 { font-weight: 700; }
+.wb-shadow-sm { box-shadow: var(--wb-shadow-sm); }
+.wb-shadow-xs { box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+.wb-text-title { color: #374151; }
+.wb-opacity-60 { opacity: .6; }
+.wb-hidden { display: none; }
+.wb-cursor-pointer { cursor: pointer; }
+.wb-w-80 { width: 80px; }
+.wb-w-100 { width: 100px; }
+.wb-w-full { width: 100%; }
+.wb-log { min-height: 100px; max-height: 220px; overflow: auto; }
+
+/* Sub-card block used in variable forms */
+.wb-subcard { margin-bottom: 10px; padding: 10px; border: 1px solid var(--wb-border); border-radius: 10px; background: #f9fafb; }
+
+/* Inputs */
+.wb-input { width: 100%; padding: 8px 10px; border: 1px solid var(--wb-border-strong); border-radius: 10px; box-sizing: border-box; background: var(--wb-bg); }
+.wb-input-plain { flex: 1; border: none; outline: none; background: transparent; }
+.wb-select { width: 100%; padding: 8px 10px; border: 1px solid var(--wb-border-strong); border-radius: 10px; background: var(--wb-bg); box-sizing: border-box; }
+.wb-select-lg { width: 100%; padding: 10px 12px; border: 1px solid var(--wb-border-strong); border-radius: 12px; background: var(--wb-bg); }
+
+/* Buttons */
+.wb-btn { padding: 6px 10px; border: 1px solid var(--wb-border); border-radius: 8px; background: var(--wb-bg); cursor: pointer; }
+.wb-btn-strong { margin-top: 6px; padding: 12px 14px; border: 2px solid var(--wb-text); border-radius: 12px; background: var(--wb-bg); font-weight: 700; cursor: pointer; }
+.wb-btn-icon { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--wb-border); background: var(--wb-bg); display: inline-flex; align-items: center; justify-content: center; }
+.wb-btn-circle { width: 28px; height: 28px; border-radius: 14px; border: 1px solid var(--wb-border); background: var(--wb-bg); box-shadow: var(--wb-shadow-sm); display: inline-flex; align-items: center; justify-content: center; }
+
+/* Cards */
+.wb-card { background: var(--wb-bg); border: 1px solid var(--wb-border); border-radius: 12px; box-shadow: var(--wb-shadow-lg); padding: 10px; }
+.wb-card-sm { background: var(--wb-bg); border: 1px solid var(--wb-border); border-radius: 12px; box-shadow: var(--wb-shadow-sm); padding: 10px; }
+.wb-list-btn { text-align: left; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--wb-border); background: #f9fafb; cursor: pointer; font-size: 12px; }
+
+/* Special pills/Search */
+.wb-pill { flex: 1; display: flex; align-items: center; padding: 6px 10px; border: 1px solid var(--wb-border-strong); border-radius: 9999px; box-shadow: var(--wb-shadow-md); background: var(--wb-bg); }
+.wb-search-icon { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); opacity: .6; }
+
+/* Grids */
+.wb-grid-1 { display: grid; grid-template-columns: 1fr; gap: 6px; }
+.wb-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wb-row-grid { display: grid; grid-template-columns: 1fr 120px 28px; align-items: center; gap: 8px; margin-bottom: 8px; min-width: 0; }
+.wb-shape-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.wb-shape-btn { padding: 8px; border: 1px solid var(--wb-border); border-radius: 8px; background: var(--wb-bg); cursor: pointer; }
+.wb-shape-square { width: 18px; height: 18px; background: #f3f4f6; border: 1px solid var(--wb-border-strong); }
+.wb-shape-rounded { width: 18px; height: 18px; background: #f3f4f6; border: 1px solid var(--wb-border-strong); border-radius: 6px; }
+.wb-shape-pill { width: 22px; height: 12px; background: #f3f4f6; border: 1px solid var(--wb-border-strong); border-radius: 999px; }
+.wb-shape-circle { width: 18px; height: 18px; background: #f3f4f6; border: 1px solid var(--wb-border-strong); border-radius: 50%; }
+.wb-shape-diamond { width: 16px; height: 16px; background: #f3f4f6; border: 1px solid var(--wb-border-strong); transform: rotate(45deg); }
+
+/* Accordions/Issues */
+.wb-accordion-btn { width: 100%; text-align: left; padding: 10px 12px; border: 1px solid var(--wb-border); border-radius: 12px; background: var(--wb-bg); box-shadow: var(--wb-shadow-md); display: flex; justify-content: space-between; align-items: center; }
+.wb-issue-badge { color: #7f1d1d; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 8px; }
+.wb-issues-panel { margin-top: 6px; padding: 8px; border: 1px solid var(--wb-border); border-radius: 10px; }
+
+/* Dashed uploader */
+.wb-dashed { border: 1px dashed var(--wb-border-strong); border-radius: 10px; padding: 12px; text-align: center; color: var(--wb-muted); }
+
+/* Scrollbars (scoped) */
+.wb-right-content::-webkit-scrollbar, .wb-left::-webkit-scrollbar { width: 8px; height: 8px; }
+.wb-right-content::-webkit-scrollbar-thumb, .wb-left::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 8px; }
+.wb-right-content::-webkit-scrollbar-track, .wb-left::-webkit-scrollbar-track { background: transparent; }
+/* Scrollbar styles scoped to WorkflowBuilder only */
+/* Approx. 30% smaller than typical 16px scrollbars => ~11px */
+
+.wb-root {
+  /* Firefox */
+  scrollbar-width: thin; /* options: auto | thin | none */
+  scrollbar-color: #9ca3af #f3f4f6; /* thumb | track */
+  width: auto;
+}
+
+/* Chromium/WebKit */
+.wb-root ::-webkit-scrollbar {
+  width: 11px;  /* vertical scrollbar width */
+  height: 11px; /* horizontal scrollbar height */
+}
+
+.wb-root ::-webkit-scrollbar-track {
+  background: #f3f4f6;
+  border-radius: 8px;
+}
+
+.wb-root ::-webkit-scrollbar-thumb {
+  background-color: #9ca3af;
+  border-radius: 8px;
+  border: 2px solid #f3f4f6; /* gives some padding around thumb for slimmer look */
+}
+
+.wb-root ::-webkit-scrollbar-thumb:hover {
+  background-color: #6b7280;
+}
+
+/* Make left sidebar and right edit-pane scrollbars ~30% smaller than the base */
+.wb-root .wb-left,
+.wb-root .wb-right-content {
+  /* Firefox */
+  scrollbar-width: thin;
+}
+
+.wb-root .wb-left::-webkit-scrollbar,
+.wb-root .wb-right-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.wb-root .wb-left::-webkit-scrollbar-thumb,
+.wb-root .wb-right-content::-webkit-scrollbar-thumb {
+  border-width: 2px;
+}
+
+/* Extra-small horizontal scrollbar for the tabs strip */
+.wb-root .wb-tabs-strip::-webkit-scrollbar {
+  height: 6px;
+}
+
+.wb-root .wb-tabs-strip::-webkit-scrollbar-track {
+  background: #eeeeee;
+  border-radius: 999px;
+}
+
+.wb-root .wb-tabs-strip::-webkit-scrollbar-thumb {
+  background-color: #9ca3af;
+  border-radius: 999px;
+  border: 2px solid #eeeeee;
+}
