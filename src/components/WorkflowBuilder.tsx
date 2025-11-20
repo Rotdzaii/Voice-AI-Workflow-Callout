@@ -3,7 +3,9 @@ import ReactFlow, {
   addEdge,
   Background,
   BackgroundVariant,
+  ConnectionLineType,
   Controls,
+  MarkerType,
   MiniMap,
   useEdgesState,
   useNodesState,
@@ -13,7 +15,7 @@ import './WorkflowBuilder.css';
 import type { Connection, Edge as RFEdge, Node as RFNode, EdgeChange, NodeChange } from 'reactflow';
 import { useMachine } from '@xstate/react';
 import { createWorkflowMachine, canAddEdge, selectors } from '../state/workflowMachine';
-import SpeechToText from '../sim/SpeechToText';
+// SpeechToText removed from simulation panel redesign; re-add later if needed
 import { analyze } from '../sim/nlu';
 import { generateResponse, fillTemplate } from '../sim/response';
 import { isTTSSupported, speak, cancelSpeak } from '../sim/tts';
@@ -64,6 +66,7 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [versions, setVersions] = useState<StoredVersion[]>(loadVersions());
   const [selectedVersionId, setSelectedVersionId] = useState<string | undefined>(undefined);
+  const [shiftDown, setShiftDown] = useState(false);
 
   // XState machine manages logical nodes/edges list
   const initialMachineContext = useMemo(() => ({ nodes: [], edges: [] }), []);
@@ -79,8 +82,8 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     };
     if (!canAddEdge(state.context, newEdge)) return;
     send({ type: 'ADD_EDGE', edge: newEdge });
-    setEdges((eds: RFEdge[]) => addEdge({ ...connection, animated: true }, eds));
-  }, [setEdges, state.context, send]);
+    setEdges((eds: RFEdge[]) => addEdge({ ...connection, animated: true, type: shiftDown ? 'step' : 'smoothstep' }, eds));
+  }, [setEdges, state.context, send, shiftDown]);
 
   const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
     onEdgesChange(changes);
@@ -110,8 +113,27 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
   const [simText, setSimText] = useState('');
   const [simNLU, setSimNLU] = useState<{ intent: string; entities: Record<string, string>; sentiment: string } | null>(null);
   const [simNodeId, setSimNodeId] = useState<string | undefined>(undefined);
-  const [simLog, setSimLog] = useState<Array<{ role: 'agent' | 'user' | 'system'; text: string }>>([]);
+  const [simLog, setSimLog] = useState<Array<{ role: 'agent' | 'user' | 'system'; text: string; when: number }>>([]);
+  const [simWorkflowVersion, setSimWorkflowVersion] = useState<string>('current');
+
+      // Track Shift key to toggle straight/step connection lines on the fly
+      useEffect(() => {
+        const onDown = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftDown(true); };
+        const onUp = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftDown(false); };
+        document.addEventListener('keydown', onDown);
+        document.addEventListener('keyup', onUp);
+        return () => {
+          document.removeEventListener('keydown', onDown);
+          document.removeEventListener('keyup', onUp);
+        };
+      }, []);
+  const [simIntent, setSimIntent] = useState<string>('');
+  const [simLatencyMs, setSimLatencyMs] = useState<number>(0);
+  const [simTimeLimitSec, setSimTimeLimitSec] = useState<number>(0);
+  const [simActive, setSimActive] = useState<boolean>(false);
+  const [simStartTs, setSimStartTs] = useState<number | null>(null);
   const [ttsEnabled, setTTSEnabled] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [ttsVoices] = useState<SpeechSynthesisVoice[]>(() => (isTTSSupported() ? window.speechSynthesis.getVoices() : []));
   const [ttsVoiceName, setTTSVoiceName] = useState<string>('');
   const [rightTab, setRightTab] = useState<'node' | 'validate' | 'version' | 'simulate' | 'io' | 'deploy'>('node');
@@ -163,14 +185,43 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
   // Templates (local custom node presets)
   type NodeTemplate = { name: string; baseType: string; label?: string; modelName?: string; shape?: string };
   const TPL_KEY = 'wb_node_templates';
-  const [templates, setTemplates] = useState<NodeTemplate[]>(() => {
+  type PortDef = { name: string; type: string };
+  type NodeTemplateFull = NodeTemplate & { tags?: string[]; inputs?: PortDef[]; outputs?: PortDef[]; schema?: any; defaults?: Record<string,string> };
+  const [templates, setTemplates] = useState<NodeTemplateFull[]>(() => {
     try { const raw = localStorage.getItem(TPL_KEY); return raw ? JSON.parse(raw) : []; } catch { return []; }
   });
-  const [showTplForm, setShowTplForm] = useState(false);
+  const [showTplModal, setShowTplModal] = useState(false);
   const [tplName, setTplName] = useState('');
+  const [tplModel, setTplModel] = useState('');
   const [tplBase, setTplBase] = useState('');
-  const [tplLabel, setTplLabel] = useState('');
   const [tplShape, setTplShape] = useState<string>('');
+  const [tplLabel, setTplLabel] = useState('');
+  const [tplTags, setTplTags] = useState<string[]>([]);
+  const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+  const predefinedTags = useMemo(() => ['speech','logic','nlu','response','tts','condition','integration','api','db','utils','entry','end','fallback'], []);
+  const [portsIn, setPortsIn] = useState<PortDef[]>([]);
+  const [portsOut, setPortsOut] = useState<PortDef[]>([]);
+  const [schemaText, setSchemaText] = useState<string>('# Code editor area');
+  const [schemaValid, setSchemaValid] = useState<boolean | null>(null);
+  const [schemaErrors, setSchemaErrors] = useState<string[]>([]);
+  const [defaults, setDefaults] = useState<Array<{ key: string; value: string }>>([]);
+
+  const validateSchema = useCallback(() => {
+    try {
+      const parsed = JSON.parse(schemaText);
+      if (typeof parsed !== 'object' || parsed === null) {
+        setSchemaValid(false); setSchemaErrors(['Schema must be JSON object']); return;
+      }
+      setSchemaValid(true); setSchemaErrors([]);
+    } catch (e: any) {
+      setSchemaValid(false); setSchemaErrors([String(e.message || e)]);
+    }
+  }, [schemaText]);
+
+  const resetTemplateForm = () => {
+    setTplName(''); setTplModel(''); setTplBase(''); setTplShape(''); setTplLabel('');
+    setTplTags([]); setTagDropdownOpen(false); setPortsIn([]); setPortsOut([]); setSchemaText('# Code editor area'); setSchemaValid(null); setSchemaErrors([]); setDefaults([]);
+  };
 
   // Hover/active effects for right sidebar tab buttons
   type TabKey = 'node' | 'validate' | 'version' | 'deploy' | 'simulate' | 'io';
@@ -181,8 +232,19 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     const isActivePress = activeTabKey === key;
     const isHover = hoverTab === key;
     const bg = isCurrent ? '#f3f4f6' : isActivePress ? '#f3f4f6' : isHover ? '#f9fafb' : 'white';
-    const border = isCurrent ? '2px solid #111827' : '1px solid #e5e7eb';
-    return { padding: '6px 10px', borderRadius: 8, border, background: bg, fontWeight: 600, transition: 'background-color .12s ease, border-color .12s ease' } as const;
+    const border = `2px solid ${isCurrent ? '#111827' : '#e5e7eb'}`;
+    return {
+      padding: '6px 10px',
+      borderRadius: 8,
+      border,
+      background: bg,
+      fontWeight: 600,
+      transition: 'background-color .12s ease, border-color .12s ease',
+      boxSizing: 'border-box' as const,
+      whiteSpace: 'nowrap' as const,
+      display: 'inline-flex',
+      alignItems: 'center',
+    } as const;
   };
 
 
@@ -194,12 +256,21 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
   }, [getIncoming]);
 
   const emitLog = useCallback((role: 'agent' | 'user' | 'system', text: string) => {
-    setSimLog(prev => [...prev, { role, text }]);
-    if (role === 'agent' && ttsEnabled) {
-      const voice = ttsVoices.find(v => v.name === ttsVoiceName);
-      speak(text, { voice });
+    const push = () => {
+      const when = Date.now();
+      setSimLog(prev => [...prev, { role, text, when }]);
+      if (role === 'agent' && ttsEnabled) {
+        const voice = ttsVoices.find(v => v.name === ttsVoiceName);
+        speak(text, { voice });
+      }
+    };
+    if (simLatencyMs > 0 && role === 'agent') {
+      setTimeout(push, simLatencyMs);
+    } else {
+      push();
     }
-  }, [ttsEnabled, ttsVoices, ttsVoiceName]);
+  }, [ttsEnabled, ttsVoices, ttsVoiceName, simLatencyMs]);
+
 
   const renderMessageFromNode = useCallback((node: { id: string; label?: string }) => {
     const tpl = node.label || '';
@@ -215,6 +286,13 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     let safety = 0;
     while (currentId && safety < 20) {
       safety++;
+      // time limit check
+      if (simActive && simTimeLimitSec > 0 && simStartTs && Date.now() - simStartTs > simTimeLimitSec * 1000) {
+        emitLog('system', '⏱️ Simulation time limit reached');
+        setSimActive(false);
+        setSimNodeId(undefined);
+        break;
+      }
       const node = state.context.nodes.find(n => n.id === currentId);
       if (!node) break;
 
@@ -238,22 +316,8 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     setSimNodeId(currentId);
   }, [state.context, getOutgoing, renderMessageFromNode, emitLog]);
 
-  const startFlow = useCallback(() => {
-    setSimLog([]);
-    if (ttsEnabled) cancelSpeak();
-    const startId = findStartNodeId(state.context) ?? state.context.nodes[0]?.id;
-    followGraphAutomatically(startId);
-  }, [findStartNodeId, followGraphAutomatically, state.context, ttsEnabled]);
+  // (runPipeline + startFlow moved below after helper callbacks to avoid use-before-declare warnings)
 
-  // Provide a run function to the parent header (after startFlow is defined)
-  useEffect(() => {
-    if (!onRegisterRun) return;
-    const run = () => {
-      setRightTab('simulate');
-      startFlow();
-    };
-    onRegisterRun(run);
-  }, [onRegisterRun, startFlow]);
 
   const routeFromCondition = useCallback((nodeId: string, nlu: { intent: string }) => {
     const outs = getOutgoing(state.context, nodeId);
@@ -265,15 +329,16 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     return edge?.target;
   }, [getOutgoing, state.context]);
 
+  // Pipeline for processing a simulated user message (repositioned below helpers)
   const runPipeline = useCallback((text: string) => {
     setSimText(text);
     const nlu = analyze(text, 'vi');
+    if (simIntent.trim()) nlu.intent = simIntent.trim();
     setSimNLU(nlu);
     for (const [k, v] of Object.entries(nlu.entities)) {
       if (typeof v === 'string') send({ type: 'SET_VAR', key: k, value: v });
     }
     emitLog('user', text);
-
     let currentId = simNodeId;
     if (!currentId) currentId = findStartNodeId(state.context) ?? state.context.nodes[0]?.id;
     const node = currentId ? state.context.nodes.find(n => n.id === currentId) : undefined;
@@ -282,9 +347,31 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
       followGraphAutomatically(nextId);
       return;
     }
-    const resp = generateResponse(nlu, state.context.variables ?? {});
-    emitLog('agent', resp);
-  }, [simNodeId, state.context, emitLog, routeFromCondition, followGraphAutomatically, send]);
+    if (simActive) {
+      const resp = generateResponse(nlu, state.context.variables ?? {});
+      emitLog('agent', resp);
+    }
+  }, [simIntent, simNodeId, state.context, emitLog, routeFromCondition, followGraphAutomatically, send, simActive, findStartNodeId]);
+
+  // Start simulation flow
+  const startFlow = useCallback(() => {
+    setSimLog([]);
+    if (ttsEnabled) cancelSpeak();
+    setSimActive(true);
+    const now = Date.now();
+    setSimStartTs(now);
+    const startId = findStartNodeId(state.context) ?? state.context.nodes[0]?.id;
+    followGraphAutomatically(startId);
+    if (simText.trim()) runPipeline(simText.trim());
+  }, [findStartNodeId, followGraphAutomatically, state.context, ttsEnabled, simText, runPipeline]);
+
+  // Register external run trigger (now after startFlow exists)
+  useEffect(() => {
+    if (!onRegisterRun) return;
+    const run = () => { setRightTab('simulate'); startFlow(); };
+    onRegisterRun(run);
+  }, [onRegisterRun, startFlow]);
+
 
   useEffect(() => {
     setNodes(prev => prev.map(n => {
@@ -321,37 +408,87 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     send({ type: 'UPDATE_NODE', id: node.id, patch: { position: node.position } });
   }, [send]);
 
-  const exportJson = useCallback(() => {
-    const json = JSON.stringify(state.context, null, 2);
+  
+
+  
+
+  // Import/Export UI state and helpers
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportVerId, setExportVerId] = useState<string>('current');
+  const [importDragOver, setImportDragOver] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importStatus, setImportStatus] = useState<{ fileName?: string; schemaVersion?: string; valid: boolean; errors: string[]; state: 'ready'|'importing'|'done'; data?: any }>({ valid: false, errors: [], state: 'ready' });
+
+  const buildExportPayload = useCallback((verId: string) => {
+    const payload = verId === 'current' ? state.context : (versions.find(v => v.id === verId)?.data ?? state.context);
+    return { schemaVersion: 'v1.2.0', ...payload } as any;
+  }, [state.context, versions]);
+
+  const runExportJson = useCallback(() => {
+    const payload = buildExportPayload(exportVerId);
+    const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'workflow.json';
+    const name = wfDetails?.name ? wfDetails.name.replace(/\s+/g,'_') : 'workflow';
+    a.download = `${name}.json`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [state.context]);
+    setExportModalOpen(false);
+  }, [buildExportPayload, exportVerId, wfDetails]);
 
-  const importJson = useCallback((file: File) => {
+  const previewImportFromFile = useCallback((file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const data = JSON.parse(String(reader.result));
-        if (data && Array.isArray(data.nodes) && Array.isArray(data.edges)) {
-          send({ type: 'RESET' });
-          for (const n of data.nodes) send({ type: 'ADD_NODE', node: n });
-          for (const e of data.edges) if (canAddEdge({ ...state.context, nodes: data.nodes, edges: data.edges }, e)) send({ type: 'ADD_EDGE', edge: e });
-          if (data.variables && typeof data.variables === 'object') {
-            for (const [k, v] of Object.entries<string>(data.variables)) send({ type: 'SET_VAR', key: k, value: v });
-          }
-          applyContextToCanvas({ ...state.context, ...data });
-        }
-      } catch {
-        // ignore
+        const text = String(reader.result || '');
+        const data = JSON.parse(text);
+        const errors: string[] = [];
+        const validNodes = Array.isArray(data.nodes);
+        const validEdges = Array.isArray(data.edges);
+        if (!validNodes) errors.push('Missing or invalid nodes array');
+        if (!validEdges) errors.push('Missing or invalid edges array');
+        const valid = validNodes && validEdges;
+        setImportStatus({
+          fileName: file.name,
+          schemaVersion: String(data.schemaVersion || 'v1.2.0'),
+          valid,
+          errors,
+          state: 'ready',
+          data,
+        });
+        setImportModalOpen(true);
+      } catch (e: any) {
+        setImportStatus({ fileName: file.name, schemaVersion: undefined, valid: false, errors: ['Invalid JSON: ' + String(e?.message || e)], state: 'ready' });
+        setImportModalOpen(true);
       }
     };
     reader.readAsText(file);
-  }, [send, state.context]);
+  }, []);
+
+  // Global ESC handling to close overlays/dropdowns (robust across inputs/selects)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const k = (e as any).key || (e as any).code || '';
+      if (k === 'Escape' || k === 'Esc') {
+        e.preventDefault?.();
+        setImportModalOpen(false);
+        setExportModalOpen(false);
+        setShowTplModal(false);
+        setTagDropdownOpen(false);
+        setExportOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('keyup', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keyup', onKey);
+    };
+  }, []);
+
+  
 
   const applyContextToCanvas = useCallback((ctx: WorkflowContext) => {
     const rfNodes: RFNode[] = ctx.nodes.map((n) => ({
@@ -367,10 +504,31 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
       sourceHandle: e.sourceHandle,
       targetHandle: e.targetHandle,
       animated: true,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#111827', width: 16, height: 16 } as any,
     }));
     setNodes(rfNodes);
     setEdges(rfEdges);
   }, [setNodes, setEdges]);
+
+  // Apply previously previewed import into the canvas and machine
+  const importApply = useCallback(() => {
+    if (!importStatus?.data) return;
+    setImportStatus(s => ({ ...s, state: 'importing' }));
+    const data = importStatus.data;
+    try {
+      send({ type: 'RESET' });
+      for (const n of (data.nodes || [])) send({ type: 'ADD_NODE', node: n });
+      for (const e of (data.edges || [])) if (canAddEdge({ ...state.context, nodes: data.nodes || [], edges: data.edges || [] }, e)) send({ type: 'ADD_EDGE', edge: e });
+      if (data.variables && typeof data.variables === 'object') {
+        for (const [k, v] of Object.entries<string>(data.variables)) send({ type: 'SET_VAR', key: k, value: v });
+      }
+      applyContextToCanvas({ ...state.context, ...data });
+      setImportStatus(s => ({ ...s, state: 'done' }));
+    } catch (e) {
+      setImportStatus(s => ({ ...s, state: 'ready', errors: [...s.errors, 'Import failed: ' + String(e)] }));
+    }
+  }, [applyContextToCanvas, importStatus, send, state.context]);
 
   const saveVersion = useCallback(() => {
     const now = Date.now();
@@ -411,6 +569,7 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
   // Note: deleteSelectedVersion removed from UI; keep helper if needed later.
 
   return (
+  <>
   <div className="wb-root">
       {/* Toolbox Sidebar */}
   <div className="wb-left">
@@ -517,32 +676,9 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
         {/* Custom Node Templates */}
         <div className="wb-divider" />
         <div className="wb-col">
-          <button onClick={() => setShowTplForm(v => !v)} className="wb-btn wb-row wb-items-center wb-gap-8 wb-shadow-sm wb-justify-center">
+          <button onClick={() => { resetTemplateForm(); setShowTplModal(true); }} className="wb-btn wb-row wb-items-center wb-gap-8 wb-shadow-sm wb-justify-center">
             <span className="wb-text-lg">＋</span> New Node Template
           </button>
-          {showTplForm && (
-            <div className="wb-card-sm wb-col wb-gap-6">
-              <input value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="Template name..." className="wb-select" />
-              <select value={tplBase} onChange={(e) => setTplBase(e.target.value)} className="wb-select">
-                <option value="">Base type...</option>
-                {NodeRegistry.map(r => (<option key={r.type} value={r.type}>{r.title}</option>))}
-              </select>
-              <input value={tplLabel} onChange={(e) => setTplLabel(e.target.value)} placeholder="Default label (optional)" className="wb-select" />
-              <select value={tplShape} onChange={(e) => setTplShape(e.target.value)} className="wb-select">
-                <option value="">Shape (optional)</option>
-                <option value="square">Square</option>
-                <option value="rounded">Rounded</option>
-                <option value="pill">Pill</option>
-                <option value="circle">Circle</option>
-                <option value="diamond">Diamond</option>
-              </select>
-              <div className="wb-row-6">
-                <button onClick={() => { if (!tplName || !tplBase) return; const next = [...templates, { name: tplName, baseType: tplBase, label: tplLabel || undefined, shape: tplShape || undefined }]; setTemplates(next); try { localStorage.setItem(TPL_KEY, JSON.stringify(next)); } catch {} setTplName(''); setTplBase(''); setTplLabel(''); setTplShape(''); setShowTplForm(false); }} className="wb-btn wb-flex-1">Save</button>
-                <button onClick={() => { setShowTplForm(false); setTplName(''); setTplBase(''); setTplLabel(''); setTplShape(''); }} className="wb-btn">Cancel</button>
-              </div>
-            </div>
-          )}
-
           {templates.length > 0 && (
             <div className="wb-col">
               <div className="wb-muted-sm">Templates</div>
@@ -550,11 +686,10 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
                 <div key={idx} className="wb-row-6">
                   <button onClick={() => {
                     addNode(t.baseType);
-                    // apply template to the node we just added (last node by count)
                     setTimeout(() => {
                       setNodes(prev => {
+                        if (prev.length === 0) return prev;
                         const arr = [...prev];
-                        if (arr.length === 0) return arr;
                         const n = arr[arr.length - 1];
                         const style = (() => {
                           const base = { ...(n.style || {}), transform: undefined as any };
@@ -565,7 +700,7 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
                           if (t.shape === 'diamond') return { ...base, width: 80, height: 80, borderRadius: 8, transform: 'rotate(45deg)' };
                           return base;
                         })();
-                        arr[arr.length - 1] = { ...n, data: { ...(n.data || {}), label: t.label || (n.data as any)?.label, shape: t.shape }, style } as RFNode;
+                        arr[arr.length - 1] = { ...n, data: { ...(n.data || {}), label: t.label || (n.data as any)?.label, shape: t.shape, modelName: t.modelName, tags: t.tags, inputs: t.inputs, outputs: t.outputs, schema: t.schema, defaults: t.defaults }, style } as RFNode;
                         return arr;
                       });
                     }, 0);
@@ -591,6 +726,11 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
         onNodeDragStop={onNodeDragStop}
         onPaneClick={() => send({ type: 'SELECT_NODE', id: undefined })}
         nodeTypes={nodeTypes}
+        defaultEdgeOptions={{
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#111827', width: 16, height: 16 },
+          style: { stroke: '#111827', strokeWidth: 1.5 },
+        }}
+        connectionLineType={shiftDown ? ConnectionLineType.Step : ConnectionLineType.Bezier}
         fitView
       >
     <Controls style={{ left: 268 }} />
@@ -603,7 +743,7 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     <div className="wb-right" style={{ width: RIGHT_SIDEBAR_WIDTH }}>
         {/* Header row */}
       <div className="wb-row wb-justify-between wb-gap-8 wb-mb-4">
-          <div className="wb-tabs-strip">
+          <div className="wb-tabs-strip" onWheel={(e)=>{ if (e.deltaY !== 0) { e.currentTarget.scrollLeft += e.deltaY; } }}>
             <button
               onClick={() => setRightTab('node')}
               onMouseEnter={() => setHoverTab('node')}
@@ -979,46 +1119,102 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
           {rightTab === 'simulate' && (
             <div className="wb-col wb-gap-8">
               <div className="wb-title">Simulation</div>
-              <div className="wb-row wb-gap-8 wb-items-center">
-                <SpeechToText onResult={(r) => r.isFinal && runPipeline(r.transcript)} />
-                <button onClick={startFlow} className="wb-btn">Start Flow</button>
-                {isTTSSupported() && (
-                  <label className="wb-row-6">
-                    <input type="checkbox" checked={ttsEnabled} onChange={(e) => setTTSEnabled(e.target.checked)} /> TTS
-                  </label>
-                )}
-              </div>
-              {isTTSSupported() && (
-                <div className="wb-row-6">
-                  <select value={ttsVoiceName} onChange={(e) => setTTSVoiceName(e.target.value)} className="wb-select wb-flex-1">
-                    <option value="">Default Voice</option>
-                    {ttsVoices.map(v => (
-                      <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>
-                    ))}
-                  </select>
-                  <button onClick={() => cancelSpeak()} className="wb-btn">Stop TTS</button>
+              <div className="wb-sim-card">
+                <div className="wb-sim-section-title">
+                  <span>Test Parameters</span>
+                  <span>{simActive ? '● Running' : ''}</span>
                 </div>
-              )}
-              <div className="wb-row-6">
-                <input value={simText} onChange={(e) => setSimText(e.target.value)} placeholder="Nhập câu nói..." className="wb-select wb-flex-1 wb-p-6" />
-                <button onClick={() => runPipeline(simText)} className="wb-btn">Run</button>
+                <div className="wb-sim-group">
+                  <div>
+                    <div className="wb-sim-label">Workflow Version</div>
+                    <select className="wb-select" value={simWorkflowVersion} onChange={(e)=>setSimWorkflowVersion(e.target.value)}>
+                      <option value="current">Current Canvas</option>
+                      {versions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div className="wb-sim-label">Test Intent</div>
+                    <input className="wb-select wb-sim-intent" placeholder="book_meeting" value={simIntent} onChange={(e)=>setSimIntent(e.target.value)} />
+                  </div>
+                  <div>
+                    <div className="wb-sim-label">Simulated User Input</div>
+                    <input className="wb-select wb-sim-user-text" placeholder="Tôi muốn đặt lịch họp sáng mai" value={simText} onChange={(e)=>setSimText(e.target.value)} />
+                  </div>
+                  <div>
+                    <div className="wb-sim-label">Voice Option</div>
+                    {isTTSSupported() ? (
+                      <select value={ttsVoiceName} onChange={(e)=>setTTSVoiceName(e.target.value)} className="wb-select">
+                        <option value="">Default</option>
+                        {ttsVoices.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
+                      </select>
+                    ) : (
+                      <div className="wb-muted-sm">TTS not supported</div>
+                    )}
+                    {isTTSSupported() && (
+                      <label className="wb-row-6" style={{ marginTop:6 }}>
+                        <input type="checkbox" checked={ttsEnabled} onChange={(e)=>setTTSEnabled(e.target.checked)} /> Enable TTS
+                      </label>
+                    )}
+                  </div>
+                  <div className="wb-sim-grid2">
+                    <div>
+                      <div className="wb-sim-label">Latency (ms)</div>
+                      <input type="number" className="wb-select" value={simLatencyMs} onChange={(e)=>setSimLatencyMs(Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <div className="wb-sim-label">Time Limit (sec)</div>
+                      <input type="number" className="wb-select" value={simTimeLimitSec} onChange={(e)=>setSimTimeLimitSec(Number(e.target.value))} />
+                    </div>
+                  </div>
+                  <div className="wb-row wb-gap-12">
+                    <button className="wb-btn-strong wb-flex-1" onClick={() => { startFlow(); }}>Start</button>
+                    <button className="wb-btn wb-flex-1" onClick={() => { setSimActive(false); setSimNodeId(undefined); emitLog('system','Simulation cleared'); setSimNLU(null); }}>Clear</button>
+                  </div>
+                </div>
               </div>
-              {simNLU && (
-                <div className="wb-muted-sm wb-text-title">
-                  <div>Intent: <b>{simNLU?.intent}</b></div>
-                  <div>Sentiment: <b>{simNLU?.sentiment}</b></div>
-                  {Object.keys(simNLU?.entities ?? {}).length > 0 && (
-                    <div>Entities: {(Object.entries(simNLU?.entities ?? {}).map(([k, v]) => `${k}=${v}`)).join(', ')}</div>
+              <div className="wb-sim-card">
+                <div className="wb-sim-section-title">Conversation Logs</div>
+                <div className="wb-log" style={{ border:'1px solid #111827', borderRadius:12, padding:10 }}>
+                  {simLog.length === 0 && <div className="wb-muted-sm">Chưa có hội thoại</div>}
+                  {simLog.map((m,i)=>{
+                    const timeStr = new Date(m.when).toLocaleTimeString();
+                    return (
+                      <div key={i} className="wb-mb-6">- [{timeStr}] {m.role === 'agent' ? 'AI' : m.role === 'user' ? 'User' : 'System'}: "{m.text}"</div>
+                    );
+                  })}
+                </div>
+                <div className="wb-export-wrapper">
+                  <button className="wb-export-btn" onClick={() => setExportOpen(o=>!o)}>Export ▾</button>
+                  {exportOpen && (
+                    <div className="wb-export-panel">
+                      <button className="wb-export-item" onClick={() => {
+                        const stamp = new Date().toISOString().replace(/[:.-]/g,'').slice(0,15);
+                        const header = 'timestamp,role,text';
+                        const rows = simLog.map(m => {
+                          const ts = new Date(m.when).toISOString();
+                          const esc = (s: string) => '"' + s.replace(/"/g,'""').replace(/\n/g,'\\n') + '"';
+                          return [esc(ts), esc(m.role), esc(m.text)].join(',');
+                        });
+                        const csv = [header, ...rows].join('\n');
+                        const blob = new Blob([csv], { type:'text/csv' });
+                        const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`simulation_log_${stamp}.csv`; a.click(); URL.revokeObjectURL(url);
+                        setExportOpen(false);
+                      }}>CSV</button>
+                      <button className="wb-export-item" onClick={() => {
+                        const stamp = new Date().toISOString().replace(/[:.-]/g,'').slice(0,15);
+                        const json = JSON.stringify(simLog.map(m => ({ ...m, timestamp: new Date(m.when).toISOString() })), null, 2);
+                        const blob = new Blob([json], { type:'application/json' });
+                        const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`simulation_log_${stamp}.json`; a.click(); URL.revokeObjectURL(url);
+                        setExportOpen(false);
+                      }}>JSON</button>
+                    </div>
                   )}
                 </div>
-              )}
-              <div className="wb-card-sm wb-log">
-                {simLog.length === 0 && <div className="wb-muted-sm">Chưa có hội thoại</div>}
-                {simLog.map((m, i) => (
-                  <div key={i} className="wb-mb-6">
-                    <b>{m.role === 'agent' ? 'Agent' : m.role === 'user' ? 'User' : 'System'}:</b> {m.text}
-                  </div>
-                ))}
+                <div className="wb-sim-footer">
+                  {simActive ? <span>Simulation running</span> : <span>Simulation {simLog.length>0 ? 'completed' : 'idle'}</span>}
+                  {simStartTs && <span>— Duration: {((Date.now()-simStartTs)/1000).toFixed(1)}s</span>}
+                  {simNLU && <span>— Intent: {simNLU.intent}</span>}
+                </div>
               </div>
             </div>
           )}
@@ -1026,15 +1222,41 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
           {rightTab === 'io' && (
             <div className="wb-col wb-gap-8">
               <div className="wb-title">Import / Export</div>
-              <button onClick={exportJson} className="wb-btn wb-fw-600">Export JSON</button>
-              <label className="wb-btn wb-cursor-pointer wb-fw-600">
-                Import JSON
-                <input type="file" accept="application/json" className="wb-hidden" onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) importJson(f);
-                  e.currentTarget.value = '';
-                }} />
-              </label>
+
+              {/* Export card */}
+              <div className="wb-card-sm wb-col wb-gap-8">
+                <div className="wb-row wb-justify-between">
+                  <div className="wb-muted-sm">Export</div>
+                  <div className="wb-opacity-60">▾</div>
+                </div>
+                <button className="wb-btn wb-fw-600" onClick={() => setExportModalOpen(true)}>Open Export</button>
+              </div>
+
+              {/* Import card with drop zone */}
+              <div className="wb-card-sm wb-col wb-gap-8">
+                <div className="wb-row wb-justify-between">
+                  <div className="wb-muted-sm">Import</div>
+                  <div className="wb-opacity-60">▾</div>
+                </div>
+                <div
+                  className={`wb-dashed ${importDragOver ? 'wb-drop-active' : ''}`}
+                  onDragOver={(e) => { e.preventDefault(); setImportDragOver(true); }}
+                  onDragEnter={(e) => { e.preventDefault(); setImportDragOver(true); }}
+                  onDragLeave={() => setImportDragOver(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setImportDragOver(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) previewImportFromFile(file);
+                  }}
+                >
+                  <div className="wb-muted-sm">Upload .JSON here</div>
+                </div>
+                <label className="wb-inline-btn wb-self-start" style={{ marginTop: 4 }}>
+                  Choose File
+                  <input type="file" accept="application/json" className="wb-hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) previewImportFromFile(f); e.currentTarget.value=''; }} />
+                </label>
+              </div>
             </div>
           )}
 
@@ -1049,6 +1271,189 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
         </div>
       </div>
     </div>
+    {showTplModal && (
+      <div className="wb-modal-overlay">
+        <div className="wb-modal">
+          <button
+            className="wb-close-btn"
+            onClick={() => setShowTplModal(false)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setShowTplModal(false); } }}
+            aria-label="Close"
+          >✕</button>
+          <h3>Create Node Template</h3>
+          <div className="wb-col">
+            <div className="wb-modal-section-title">General Info</div>
+            <input className="wb-select" placeholder="Node Name" value={tplName} onChange={e => setTplName(e.target.value)} />
+            <input className="wb-select" placeholder="Model Name" value={tplModel} onChange={e => setTplModel(e.target.value)} />
+            <select className="wb-select" value={tplBase} onChange={e => setTplBase(e.target.value)}>
+              <option value="">Type...</option>
+              {NodeRegistry.map(r => (<option key={r.type} value={r.type}>{r.title}</option>))}
+            </select>
+            <div className={`wb-tag-dropdown ${tagDropdownOpen ? 'open' : ''}`}>
+              <button type="button" className="wb-tag-trigger" onClick={() => setTagDropdownOpen(o => !o)}>
+                <span className="wb-tag-label">{tplTags.length === 0 ? 'Select tags...' : tplTags.join(', ')}</span>
+              </button>
+              {tagDropdownOpen && (
+                <div className="wb-tag-panel">
+                  {predefinedTags.map(tag => {
+                    const selected = tplTags.includes(tag);
+                    return (
+                      <div
+                        key={tag}
+                        className={`wb-tag-option ${selected ? 'selected' : ''}`}
+                        onClick={() => setTplTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])}
+                      >
+                        <span className="wb-tag-dot" /> {tag}
+                      </div>
+                    );
+                  })}
+                  {tplTags.length > 0 && (
+                    <div className="wb-tag-option" onClick={() => setTplTags([])}>Clear all</div>
+                  )}
+                </div>
+              )}
+            </div>
+            {tplTags.length>0 && (
+              <div className="wb-row wb-flex-wrap" style={{ flexWrap:'wrap', gap:6 }}>
+                {tplTags.map(tag => (
+                  <span key={tag} className="wb-tag-badge">{tag}<button className="wb-tag-remove" onClick={() => setTplTags(ts=>ts.filter(t=>t!==tag))}>×</button></span>
+                ))}
+              </div>
+            )}
+            <input className="wb-select" placeholder="Display Label (optional)" value={tplLabel} onChange={e=>setTplLabel(e.target.value)} />
+            <select className="wb-select" value={tplShape} onChange={e=>setTplShape(e.target.value)}>
+              <option value="">Shape (optional)</option>
+              <option value="square">Square</option>
+              <option value="rounded">Rounded</option>
+              <option value="pill">Pill</option>
+              <option value="circle">Circle</option>
+              <option value="diamond">Diamond</option>
+            </select>
+          </div>
+          <div className="wb-col">
+            <div className="wb-modal-section-title">Ports Configuration</div>
+            <div className="wb-muted-sm">Input Ports</div>
+            {portsIn.map((p,i)=>(
+              <div key={i} className="wb-port-row">
+                <input className="wb-input" placeholder="name" value={p.name} onChange={e=>setPortsIn(arr=>arr.map((it,idx)=>idx===i?{...it,name:e.target.value}:it))} />
+                <input className="wb-input" placeholder="type" value={p.type} onChange={e=>setPortsIn(arr=>arr.map((it,idx)=>idx===i?{...it,type:e.target.value}:it))} />
+                <button className="wb-btn-icon" onClick={()=>setPortsIn(arr=>arr.filter((_,idx)=>idx!==i))}>×</button>
+              </div>
+            ))}
+            <button className="wb-inline-btn" onClick={()=>setPortsIn(arr=>[...arr,{name:'',type:''}])}>+ Add Input Port</button>
+            <div className="wb-muted-sm" style={{ marginTop:8 }}>Output Ports</div>
+            {portsOut.map((p,i)=>(
+              <div key={i} className="wb-port-row">
+                <input className="wb-input" placeholder="name" value={p.name} onChange={e=>setPortsOut(arr=>arr.map((it,idx)=>idx===i?{...it,name:e.target.value}:it))} />
+                <input className="wb-input" placeholder="type" value={p.type} onChange={e=>setPortsOut(arr=>arr.map((it,idx)=>idx===i?{...it,type:e.target.value}:it))} />
+                <button className="wb-btn-icon" onClick={()=>setPortsOut(arr=>arr.filter((_,idx)=>idx!==i))}>×</button>
+              </div>
+            ))}
+            <button className="wb-inline-btn" onClick={()=>setPortsOut(arr=>[...arr,{name:'',type:''}])}>+ Add Output Port</button>
+          </div>
+          <div className="wb-col">
+            <div className="wb-modal-section-title">Props Schema (JSONSchema)</div>
+            <textarea className="wb-code-area" value={schemaText} onChange={e=>setSchemaText(e.target.value)} />
+            <div className="wb-modal-section-title">Default Values</div>
+            {defaults.map((d,i)=>(
+              <div key={i} className="wb-default-row">
+                <input className="wb-input" placeholder="# Key" value={d.key} onChange={e=>setDefaults(arr=>arr.map((it,idx)=>idx===i?{...it,key:e.target.value}:it))} />
+                <input className="wb-input" placeholder="# value pairs" value={d.value} onChange={e=>setDefaults(arr=>arr.map((it,idx)=>idx===i?{...it,value:e.target.value}:it))} />
+                <button className="wb-btn-icon" onClick={()=>setDefaults(arr=>arr.filter((_,idx)=>idx!==i))}>×</button>
+              </div>
+            ))}
+            <div className="wb-default-actions">
+              <div className="wb-link-icon" title="Link key/value">⛓</div>
+              <button className="wb-plus-btn" onClick={()=>setDefaults(arr=>[...arr,{key:'',value:''}])}>＋</button>
+            </div>
+            <div className="wb-default-actions" style={{ marginTop: 14 }}>
+              <button className="wb-btn" onClick={validateSchema}>Validate Schema</button>
+              <button className="wb-btn-strong" onClick={() => {
+                if (!tplName || !tplBase) return;
+                let parsed: any = undefined;
+                if (schemaValid) {
+                  try { parsed = JSON.parse(schemaText); } catch {}
+                }
+                const defaultsObj: Record<string,string> = {};
+                for (const d of defaults) if (d.key.trim()) defaultsObj[d.key.trim()] = d.value;
+                const next: NodeTemplateFull = { name: tplName, baseType: tplBase, label: tplLabel || undefined, modelName: tplModel || undefined, shape: tplShape || undefined, tags: tplTags, inputs: portsIn.filter(p=>p.name.trim()), outputs: portsOut.filter(p=>p.name.trim()), schema: parsed, defaults: defaultsObj };
+                const list = [...templates, next];
+                setTemplates(list);
+                try { localStorage.setItem(TPL_KEY, JSON.stringify(list)); } catch {}
+                setShowTplModal(false);
+              }}>Save Template</button>
+              <button className="wb-btn" onClick={() => { setShowTplModal(false); }}>Cancel</button>
+            </div>
+          </div>
+          <div>
+            {schemaValid === null && <div className="wb-muted-sm">Validate hiển thị trạng thái.</div>}
+            {schemaValid === true && <div className="wb-status-good">Schema Valid ✓</div>}
+            {schemaValid === false && (
+              <div className="wb-status-bad">Error: {schemaErrors.join(', ')}</div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Export Modal */}
+    {exportModalOpen && (
+      <div className="wb-modal-overlay">
+        <div className="wb-modal">
+          <button
+            className="wb-close-btn"
+            onClick={() => setExportModalOpen(false)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setExportModalOpen(false); } }}
+            aria-label="Close"
+          >✕</button>
+          <h3>Export to JSON</h3>
+          <div className="wb-col wb-gap-10">
+            <div className="wb-muted-sm">Select Version</div>
+            <select className="wb-select" value={exportVerId} onChange={(e)=>setExportVerId(e.target.value)}>
+              <option value="current">Current Canvas</option>
+              {versions.map(v => (<option key={v.id} value={v.id}>{v.name}</option>))}
+            </select>
+            <div className="wb-card-sm">
+              <div>Variables <span className="wb-ml-8">✔</span></div>
+              <div>Bindings <span className="wb-ml-8">✔</span></div>
+              <div>Templates <span className="wb-ml-8">✔</span></div>
+            </div>
+            <button className="wb-btn-strong" onClick={runExportJson}>Export .json</button>
+            <div className="wb-muted-sm">Exported schemaVersion: v1.2.0</div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Import Status Modal */}
+    {importModalOpen && (
+      <div className="wb-modal-overlay">
+        <div className="wb-modal">
+          <button
+            className="wb-close-btn"
+            onClick={() => setImportModalOpen(false)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setImportModalOpen(false); } }}
+            aria-label="Close"
+          >✕</button>
+          <h3>{importStatus.fileName || 'workflow.json'}</h3>
+          <div className="wb-col wb-gap-8">
+            <div>Detected schemaVersion: <span className="wb-fw-700">{importStatus.schemaVersion || '—'}</span></div>
+            <div>Validation Result: {importStatus.valid ? '✅ Valid' : '❌ Invalid'}</div>
+            <div>Errors: {importStatus.errors.length === 0 ? '(empty)' : ''}</div>
+            {importStatus.errors.length > 0 && (
+              <div className="wb-issues-panel">
+                {importStatus.errors.map((e,i)=>(<div key={i} className="wb-issue-badge">{e}</div>))}
+              </div>
+            )}
+            <button className="wb-btn-strong" onClick={importApply} disabled={!importStatus.valid || importStatus.state==='importing'}>
+              {importStatus.state === 'done' ? 'Imported ✓' : importStatus.state === 'importing' ? 'Importing…' : 'Import Workflow'}
+            </button>
+            {importStatus.state === 'done' && <div className="wb-muted-sm">Imported Successfully ✓</div>}
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 }
 
@@ -1076,6 +1481,14 @@ function DeployPanel({ context, versions, selectedVersionId, onDeploy }: { conte
   const [log, setLog] = useState<{ success?: boolean; message?: string; when?: number } | null>(null);
 
   useEffect(() => { setVerId(selectedVersionId ?? 'current'); }, [selectedVersionId]);
+
+  // ESC closes dialing policy modal if open
+  useEffect(() => {
+    if (!policyOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPolicyOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [policyOpen]);
 
   function parseCsvAndCount(file: File) {
     setUploadedName(file.name);
@@ -1143,45 +1556,11 @@ function DeployPanel({ context, versions, selectedVersionId, onDeploy }: { conte
         </button>
       </div>
 
-      {/* Dialing policy dropdown */}
+      {/* Dialing policy modal trigger */}
       <div>
-        <button onClick={() => setPolicyOpen(v => !v)} className="wb-accordion-btn">
-          <span>Dialing policy</span><span>{policyOpen ? '▴' : '▾'}</span>
+        <button onClick={() => setPolicyOpen(true)} className="wb-accordion-btn">
+          <span>Dialing policy</span><span>▾</span>
         </button>
-        {policyOpen && (
-          <div className="wb-card-sm wb-grid-1 wb-gap-8 wb-mt-8">
-            <label>Max concurrency: <input type="number" value={maxConcurrency} onChange={(e) => setMaxConcurrency(Number(e.target.value))} className="wb-select wb-w-100 wb-ml-8" /></label>
-            <div className="wb-row wb-gap-8 wb-items-center">
-              <label>Rate limit: <input type="number" value={rateLimit} onChange={(e) => setRateLimit(Number(e.target.value))} className="wb-select wb-w-100 wb-ml-8" /></label>
-              <label>Delay: <input type="number" value={retryDelay} onChange={(e) => setRetryDelay(Number(e.target.value))} className="wb-select wb-w-100 wb-ml-8" /></label>
-            </div>
-            <div className="wb-row wb-gap-8 wb-items-center">
-              <label>Retries: <input type="number" value={retries} onChange={(e) => setRetries(Number(e.target.value))} className="wb-select wb-w-80 wb-ml-8" /></label>
-              <div className="wb-row wb-gap-8 wb-items-center">
-                <span>Retry on:</span>
-                <label><input type="checkbox" checked={retryOn.noAnswer} onChange={(e) => setRetryOn(s => ({ ...s, noAnswer: e.target.checked }))} /> No answer</label>
-                <label><input type="checkbox" checked={retryOn.busy} onChange={(e) => setRetryOn(s => ({ ...s, busy: e.target.checked }))} /> Busy</label>
-                <label><input type="checkbox" checked={retryOn.failed} onChange={(e) => setRetryOn(s => ({ ...s, failed: e.target.checked }))} /> Failed</label>
-              </div>
-            </div>
-            <div className="wb-row wb-gap-8 wb-items-center">
-              <label>Time window: <input type="time" value={timeStart} onChange={(e) => setTimeStart(e.target.value)} className="wb-select wb-ml-8" /> – <input type="time" value={timeEnd} onChange={(e) => setTimeEnd(e.target.value)} className="wb-select" /></label>
-            </div>
-            <label>Caller ID: <input value={callerId} onChange={(e) => setCallerId(e.target.value)} placeholder="e.g., +84xxxx" className="wb-select wb-w-full wb-ml-8" /></label>
-            <div className="wb-row wb-gap-8 wb-items-center">
-              <label>Timezone: 
-                <select value={timezone} onChange={(e) => setTimezone(e.target.value)} className="wb-select wb-ml-8">
-                  <option value="Asia/Ho_Chi_Minh">Asia/Ho_Chi_Minh</option>
-                  <option value="Asia/Bangkok">Asia/Bangkok</option>
-                  <option value="Asia/Tokyo">Asia/Tokyo</option>
-                </select>
-              </label>
-            </div>
-            <label className="wb-row wb-gap-8 wb-items-center">
-              <input type="checkbox" checked={applyDnc} onChange={(e) => setApplyDnc(e.target.checked)} /> Apply Global DNC Filter
-            </label>
-          </div>
-        )}
       </div>
 
       {/* Environment and version selection */}
@@ -1210,6 +1589,99 @@ function DeployPanel({ context, versions, selectedVersionId, onDeploy }: { conte
         <div>Target count: {targetCount}</div>
         <div>Status: {log?.message || '—'}</div>
       </div>
+
+      {/* Dialing policy modal */}
+      {policyOpen && (
+        <div className="wb-modal-overlay">
+          <div className="wb-modal">
+            <button
+              className="wb-close-btn"
+              onClick={() => setPolicyOpen(false)}
+              onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setPolicyOpen(false); } }}
+              aria-label="Close"
+            >✕</button>
+            <h3>Dialing Policy</h3>
+            <div className="wb-col wb-gap-10">
+              <div className="wb-field">
+                <div className="wb-field-label">Max Concurrency</div>
+                <input type="number" value={maxConcurrency} onChange={(e) => setMaxConcurrency(Number(e.target.value))} className="wb-select" />
+                <div className="wb-help">Số cuộc gọi chạy song song. Ví dụ: 50.</div>
+              </div>
+
+              <div className="wb-grid-2">
+                <div className="wb-field">
+                  <div className="wb-field-label">Rate Limit (/min)</div>
+                  <input type="number" value={rateLimit} onChange={(e) => setRateLimit(Number(e.target.value))} className="wb-select" />
+                  <div className="wb-help">Số cuộc gọi bắt đầu mỗi phút. Ví dụ: 120 ≈ 2/s.</div>
+                </div>
+                <div className="wb-field">
+                  <div className="wb-field-label">Delay (Retry Delay, s)</div>
+                  <input type="number" value={retryDelay} onChange={(e) => setRetryDelay(Number(e.target.value))} className="wb-select" />
+                  <div className="wb-help">Thời gian chờ giữa các lần retry. Ví dụ: 300 giây.</div>
+                </div>
+              </div>
+
+              <div className="wb-grid-2">
+                <div className="wb-field">
+                  <div className="wb-field-label">Retries</div>
+                  <input type="number" value={retries} onChange={(e) => setRetries(Number(e.target.value))} className="wb-select" />
+                  <div className="wb-help">Số lần gọi lại tối đa khi thất bại. Ví dụ: 2.</div>
+                </div>
+                <div className="wb-field">
+                  <div className="wb-field-label">Retry On</div>
+                  <div className="wb-checkbox-group">
+                    <label><input type="checkbox" checked={retryOn.noAnswer} onChange={(e) => setRetryOn(s => ({ ...s, noAnswer: e.target.checked }))} /> No answer</label>
+                    <label><input type="checkbox" checked={retryOn.busy} onChange={(e) => setRetryOn(s => ({ ...s, busy: e.target.checked }))} /> Busy</label>
+                    <label><input type="checkbox" checked={retryOn.failed} onChange={(e) => setRetryOn(s => ({ ...s, failed: e.target.checked }))} /> Failed</label>
+                  </div>
+                  <div className="wb-help">Chỉ định trạng thái được phép retry (theo CDR).</div>
+                </div>
+              </div>
+
+              <div className="wb-grid-2">
+                <div className="wb-field">
+                  <div className="wb-field-label">Time Window</div>
+                  <div className="wb-row wb-gap-8 wb-items-center">
+                    <input type="time" value={timeStart} onChange={(e) => setTimeStart(e.target.value)} className="wb-select" />
+                    <span>–</span>
+                    <input type="time" value={timeEnd} onChange={(e) => setTimeEnd(e.target.value)} className="wb-select" />
+                  </div>
+                  <div className="wb-help">Khung giờ được phép gọi. Ví dụ: 09:00–18:00.</div>
+                </div>
+                <div className="wb-field">
+                  <div className="wb-field-label">Caller ID</div>
+                  <input value={callerId} onChange={(e) => setCallerId(e.target.value)} placeholder="e.g., +84xxxx" className="wb-select" />
+                  <div className="wb-help">Số hiển thị khi gọi ra (DID/Tổng đài).</div>
+                </div>
+              </div>
+
+              <div className="wb-grid-2">
+                <div className="wb-field">
+                  <div className="wb-field-label">Timezone</div>
+                  <select value={timezone} onChange={(e) => setTimezone(e.target.value)} className="wb-select">
+                    <option value="Asia/Ho_Chi_Minh">Asia/Ho_Chi_Minh</option>
+                    <option value="Asia/Bangkok">Asia/Bangkok</option>
+                    <option value="Asia/Tokyo">Asia/Tokyo</option>
+                  </select>
+                  <div className="wb-help">Xác định múi giờ áp dụng Time Window.</div>
+                </div>
+                <div className="wb-field">
+                  <label className="wb-row wb-gap-8 wb-items-center wb-field-label">
+                    <input type="checkbox" checked={applyDnc} onChange={(e) => setApplyDnc(e.target.checked)} /> Apply Global DNC Filter
+                  </label>
+                  <div className="wb-help">Loại bỏ số trong danh sách Do Not Call.</div>
+                </div>
+              </div>
+
+              <div className="wb-modal-actions">
+                <button className="wb-btn-strong" onClick={() => setPolicyOpen(false)}>Save</button>
+                <button className="wb-btn" onClick={() => setPolicyOpen(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

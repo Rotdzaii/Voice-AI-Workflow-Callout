@@ -112,10 +112,25 @@ export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkf
               />
             </div>
             {/* Filter buttons */}
-            <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
-              <button onClick={() => setFilter('active')} style={filterBtnStyle(filter === 'active')}>Active Workflows</button>
-              <button onClick={() => setFilter('draft')} style={filterBtnStyle(filter === 'draft')}>Draft Workflows</button>
-              <button onClick={() => setFilter('error')} style={filterBtnStyle(filter === 'error')}>Error Workflows</button>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 24 }}>
+              <button
+                onClick={() => setFilter('active')}
+                style={{ ...filterBtnStyle(filter === 'active'), marginLeft: 24 }}
+              >
+                Active Workflows
+              </button>
+              <button
+                onClick={() => setFilter('draft')}
+                style={filterBtnStyle(filter === 'draft')}
+              >
+                Draft Workflows
+              </button>
+              <button
+                onClick={() => setFilter('error')}
+                style={{ ...filterBtnStyle(filter === 'error'), marginRight: 24 }}
+              >
+                Error Workflows
+              </button>
             </div>
 
             {/* Recent Activities panel */}
