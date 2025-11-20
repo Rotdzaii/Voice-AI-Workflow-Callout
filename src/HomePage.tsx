@@ -15,7 +15,7 @@ const mockWorkflows: WorkflowMeta[] = [
   { id: 'wf-3', name: 'QA_Router', status: 'Error', updatedAt: 'dd/mm/yyyy - 00:00' },
 ];
 
-export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkflow?: (wf: WorkflowMeta) => void; onOpenReport?: () => void }) {
+export default function HomePage({ onOpenWorkflow, onOpenReport, onOpenLogin }: { onOpenWorkflow?: (wf: WorkflowMeta) => void; onOpenReport?: () => void; onOpenLogin?: () => void }) {
   const [filter, setFilter] = useState<'all' | 'active' | 'draft' | 'error'>('all');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<WorkflowMeta | null>(null);
@@ -80,6 +80,10 @@ export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkf
               }
             }}
           >{sidebarCollapsed ? 'RP' : 'Report'}</button>
+          <button
+            style={navBtnStyle}
+            onClick={() => onOpenLogin?.()}
+          >{sidebarCollapsed ? 'LG' : 'Login'}</button>
         </nav>
         <div style={{ marginTop: 'auto', borderTop: '1px solid #e5e7eb', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#111827', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>U</div>
