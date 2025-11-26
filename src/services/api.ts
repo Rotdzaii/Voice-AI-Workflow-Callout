@@ -43,7 +43,11 @@ export const api = {
   },
   telephony: {
     originate: (params: { channel: string; exten: string; context?: string; callerid?: string }) => {
-      const q = new URLSearchParams(Object.entries(params).reduce((acc, [k,v])=>{ if(v!=null) acc[k]=String(v); return acc;},{}) as any).toString();
+      const acc: Record<string, string> = {};
+      for (const [k, v] of Object.entries(params)) {
+        if (v != null) acc[k] = String(v);
+      }
+      const q = new URLSearchParams(acc).toString();
       return request(`/call/originate?${q}`);
     },
   },
