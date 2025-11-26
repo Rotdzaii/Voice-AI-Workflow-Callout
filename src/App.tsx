@@ -25,7 +25,6 @@ function App() {
         <HomePage
           onOpenWorkflow={(wf) => setView({ kind: 'builder', workflowId: wf.id })}
           onOpenReport={() => setView({ kind: 'report' })}
-          onOpenLogin={() => setView({ kind: 'login' })}
         />
       )}
             {v.kind === 'login' && (
