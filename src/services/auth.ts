@@ -1,0 +1,283 @@
+export type LoginResponse = { success: boolean; token?: string; message?: string };
+
+export type UserProfile = {
+  id?: string;
+  name?: string;
+  email?: string;
+  avatarUrl?: string;
+  provider?: 'local' | 'google' | 'github' | string;
+  username?: string;
+};
+
+function apiBase() {
+  const base = (import.meta as any).env?.VITE_API_BASE_URL || '';
+  return base.replace(/\/$/, '');
+}
+
+export async function loginWithCredentials(email: string, password: string): Promise<boolean> {
+  // Placeholder for backend integration. Frontend team can connect to real API later.
+  const url = `${apiBase()}/api/auth/login`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    if (!res.ok) return false;
+    const data: LoginResponse = await res.json().catch(() => ({ success: false }));
+    if (data?.success && data?.token) {
+      localStorage.setItem('auth_token', data.token);
+      // Try to infer and store profile for local login
+      saveProfileFromToken(data.token, 'local');
+      return true;
+    }
+    return false;
+  } catch {
+    // Fallback demo behavior (remove when backend is ready)
+    const ok = email.length > 3 && password.length > 3;
+    if (ok) {
+      localStorage.setItem('auth_token', 'DEMO_TOKEN');
+      // Minimal local demo profile
+      const name = email?.split('@')[0] || 'User';
+      const demoProfile: UserProfile = { name, email, provider: 'local', username: name };
+      localStorage.setItem('auth_user', JSON.stringify(demoProfile));
+    }
+    return ok;
+  }
+}
+
+function randomString(len = 32): string {
+  const arr = new Uint8Array(len);
+  (window.crypto || (window as any).msCrypto).getRandomValues(arr);
+  const alph = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let out = '';
+  for (let i = 0; i < arr.length; i++) out += alph[arr[i] % alph.length];
+  return out;
+}
+
+function appendQuery(url: string, params: Record<string, string | undefined | null>): string {
+  const u = new URL(url, window.location.origin);
+  Object.entries(params).forEach(([k, v]) => { if (v != null) u.searchParams.set(k, String(v)); });
+  return u.toString();
+}
+
+function openOAuthPopup(url: string, provider: 'google' | 'github', timeoutMs = 120000): Promise<string> {
+  const webNonce = randomString(24);
+  // Attach a frontend nonce to correlate with callback message (similar to state)
+  url = appendQuery(url, { web_nonce: webNonce });
+  const w = 520, h = 640;
+  const y = window.top ? Math.max(0, (window.top.outerHeight - h) / 2 + (window.top.screenY || 0)) : 0;
+  const x = window.top ? Math.max(0, (window.top.outerWidth - w) / 2 + (window.top.screenX || 0)) : 0;
+  const popup = window.open(url, `oauth_${provider}` , `width=${w},height=${h},left=${x},top=${y}`);
+  if (!popup) return Promise.reject(new Error('Popup blocked'));
+
+  const base = apiBase();
+  let expectedOrigin: string | null = null;
+  try { expectedOrigin = base ? new URL(base).origin : null; } catch { expectedOrigin = null; }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      // Avoid auto-closing popup due to COOP restrictions; let user close manually
+      reject(new Error('OAuth timeout'));
+    }, timeoutMs);
+
+    const onMessage = (ev: MessageEvent) => {
+      if (expectedOrigin && ev.origin !== expectedOrigin) return; // ignore other origins
+      const d = ev.data || {};
+      if (d?.type !== 'oauth' || d?.provider !== provider) return;
+      // If backend echoes the nonce, verify; otherwise allow for backward compat
+      if (d?.nonce && d.nonce !== webNonce) {
+        cleanup();
+        reject(new Error('OAuth response nonce mismatch'));
+        return;
+      }
+      cleanup();
+      if (d.ok && d.token) {
+        // Fire a success event so UI can show toast/snackbar
+        try { window.dispatchEvent(new CustomEvent('auth:login-success', { detail: { provider, token: String(d.token) } })); } catch {}
+        resolve(String(d.token));
+      } else {
+        reject(new Error(String(d.error || 'OAuth failed')));
+      }
+    };
+
+    const interval = window.setInterval(() => {
+      if (popup.closed) {
+        window.clearInterval(interval);
+        // Do not force-close or reject here; rely on postMessage result
+      }
+    }, 300);
+
+    function cleanup() {
+      clearTimeout(timer);
+      window.removeEventListener('message', onMessage as any);
+    }
+
+    window.addEventListener('message', onMessage as any);
+  });
+}
+
+export async function startGoogleLogin(): Promise<boolean> {
+  const url = `${apiBase()}/auth/oauth/google/start`;
+  const token = await openOAuthPopup(url, 'google');
+  if (token) {
+    localStorage.setItem('auth_token', token);
+    saveProfileFromToken(token, 'google');
+    // Navigate to home page after login
+    window.location.href = '/';
+    return true;
+  }
+  return false;
+}
+
+export async function startGithubLogin(): Promise<boolean> {
+  const url = `${apiBase()}/auth/oauth/github/start`;
+  const token = await openOAuthPopup(url, 'github');
+  if (token) {
+    localStorage.setItem('auth_token', token);
+    saveProfileFromToken(token, 'github');
+    window.location.href = '/';
+    return true;
+  }
+  return false;
+}
+
+// ----- Profile helpers -----
+
+function parseJwt<T = any>(token: string): T | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(
+      atob(payload)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+export function saveProfileFromToken(token: string, providerHint?: UserProfile['provider']) {
+  const p = parseJwt<any>(token) || {};
+  const iss = String(p.iss || '');
+  let provider: UserProfile['provider'] = providerHint ||
+    (iss.includes('google') ? 'google' : iss.includes('github') ? 'github' : 'local');
+  const name = p.name || [p.given_name, p.family_name].filter(Boolean).join(' ') || p.login || p.preferred_username || (p.email ? String(p.email).split('@')[0] : undefined) || 'User';
+  const email = p.email || p.email_address || undefined;
+  let avatarUrl: string | undefined = p.picture || p.avatar_url || undefined;
+  const id = p.sub || p.id || undefined;
+  const username = p.login || p.preferred_username || (email ? String(email).split('@')[0] : undefined);
+  if (provider === 'google' && avatarUrl) {
+    avatarUrl = normalizeGoogleAvatar(avatarUrl);
+  }
+  const profile: UserProfile = { id, name, email, avatarUrl, provider, username };
+  try { localStorage.setItem('auth_user', JSON.stringify(profile)); } catch {}
+  try {
+    const candidates = getAvatarCandidates(profile);
+    console.log('[auth] Saved profile from token:', { provider, name, email, rawAvatar: p.picture || p.avatar_url, normalizedAvatar: avatarUrl, avatarCandidates: candidates });
+  } catch {}
+  return profile;
+}
+
+export function getStoredProfile(): UserProfile | null {
+  try {
+    const raw = localStorage.getItem('auth_user');
+    return raw ? JSON.parse(raw) as UserProfile : null;
+  } catch { return null; }
+}
+
+export async function fetchCurrentUser(): Promise<UserProfile | null> {
+  const token = localStorage.getItem('auth_token');
+  if (!token) return null;
+  const base = apiBase();
+  const candidates = [
+    `${base}/auth/me`,
+    `${base}/api/auth/me`,
+  ];
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const profile: UserProfile = {
+          id: data.id || data.user_id || data.sub,
+          name: data.name || data.full_name || data.login || data.preferred_username,
+          email: data.email,
+          avatarUrl: data.avatarUrl || data.avatar_url || data.picture,
+          provider: data.provider || data.iss || 'local',
+          username: data.login || data.username || data.preferred_username
+        };
+        localStorage.setItem('auth_user', JSON.stringify(profile));
+        return profile;
+      }
+    } catch {
+      // try next
+    }
+  }
+  // Fallback to decoding JWT
+  return saveProfileFromToken(token);
+}
+
+export function logout(redirectTo?: string) {
+  try { localStorage.removeItem('auth_token'); } catch {}
+  try { localStorage.removeItem('auth_user'); } catch {}
+  if (redirectTo) {
+    window.location.href = redirectTo;
+  } else {
+    // Reload to root; App checks token and shows Login
+    window.location.href = '/';
+  }
+}
+
+// Construct best-effort avatar URL from profile
+export function getAvatarUrl(profile?: UserProfile | null): string | undefined {
+  if (!profile) return undefined;
+  if (profile.avatarUrl) return profile.avatarUrl;
+  if (profile.provider === 'github' && profile.username) {
+    return `https://github.com/${encodeURIComponent(profile.username)}.png`;
+  }
+  if (profile.email) {
+    return `https://unavatar.io/${encodeURIComponent(profile.email)}`;
+  }
+  return undefined;
+}
+
+export function getAvatarCandidates(profile?: UserProfile | null): string[] {
+  const urls: string[] = [];
+  if (!profile) return urls;
+  if (profile.avatarUrl) urls.push(String(profile.avatarUrl));
+  if (profile.provider === 'github' && profile.username) {
+    urls.push(`https://github.com/${encodeURIComponent(profile.username)}.png`);
+  }
+  if (profile.provider === 'google') {
+    if (profile.email) {
+      // Try Google-specific resolvers first
+      urls.push(`https://unavatar.io/google/${encodeURIComponent(profile.email)}`);
+      urls.push(`https://unavatar.io/gmail/${encodeURIComponent(profile.email)}`);
+    }
+  }
+  if (profile.email) {
+    // Gravatar, then generic email resolution
+    urls.push(`https://unavatar.io/gravatar/${encodeURIComponent(profile.email)}`);
+    urls.push(`https://unavatar.io/${encodeURIComponent(profile.email)}`);
+  }
+  // De-duplicate while preserving order
+  return Array.from(new Set(urls));
+}
+
+// Normalize Google avatar URL size (default Google returns s96-c). We upscale modestly.
+function normalizeGoogleAvatar(url: string, size: number = 128): string {
+  try {
+    if (!/googleusercontent\.com\//.test(url)) return url;
+    // Examples: https://lh3.googleusercontent.com/a/XYZ=s96-c
+    // Replace =sNN-c with =s{size}-c preserving crop spec 'c'
+    return url.replace(/=s\d+-c$/, `=s${size}-c`);
+  } catch {
+    return url;
+  }
+}
