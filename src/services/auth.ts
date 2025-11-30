@@ -281,3 +281,4 @@ function normalizeGoogleAvatar(url: string, size: number = 128): string {
     return url;
   }
 }
+// Feature: OAuth integration implemented
