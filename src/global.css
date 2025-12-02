@@ -1,0 +1,7 @@
+/* Minimal global reset to remove default browser margins that cause page scrollbars */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Let pages control their own overflow; no global overflow hidden here */

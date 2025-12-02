@@ -1,0 +1,24 @@
+# Chuẩn hoá line endings về LF cho code nguồn
+* text=auto eol=lf
+
+# Rõ ràng hơn cho các loại file
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.md   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+
+# Binary (không chuyển đổi line endings)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+
+# SVG là text (giữ nguyên để diff được)
+*.svg text eol=lf
