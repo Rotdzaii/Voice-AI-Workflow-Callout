@@ -1,11 +1,3 @@
-/* File: src/index.css */
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
 html, body, #root {
   width: 100%;
   height: 100%;
@@ -16,7 +8,6 @@ html, body, #root {
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased; /* Giúp chữ trên Mac/iPhone mượt hơn */
-  overflow: hidden; /* Giữ trang ở kích thước 100%, ẩn thanh cuộn */
 }
 :root {
   --wb-border: #e5e7eb;
