@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import WorkflowBuilder from './components/WorkflowBuilder';
 import ReportPage from './ReportPage.tsx';
+import { getAvatarUrl, logout, type UserProfile } from './services/auth';
 
 interface WorkflowMeta {
   id: string;
@@ -9,19 +10,24 @@ interface WorkflowMeta {
   updatedAt: string;
 }
 
-const mockWorkflows: WorkflowMeta[] = [
-  { id: 'wf-1', name: 'Meeting_Bot_v1', status: 'Active', updatedAt: 'dd/mm/yyyy - 00:00' },
-  { id: 'wf-2', name: 'Support_AI_v2', status: 'Draft', updatedAt: 'dd/mm/yyyy - 00:00' },
-  { id: 'wf-3', name: 'QA_Router', status: 'Error', updatedAt: 'dd/mm/yyyy - 00:00' },
-];
+const mockWorkflows: WorkflowMeta[] = [];
 
-export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkflow?: (wf: WorkflowMeta) => void; onOpenReport?: () => void }) {
+type HomePageProps = {
+  profile?: UserProfile | null;
+  onOpenWorkflow?: (wf: WorkflowMeta) => void;
+  onOpenReport?: () => void;
+};
+
+export default function HomePage({ profile, onOpenWorkflow, onOpenReport }: HomePageProps) {
   const [filter, setFilter] = useState<'all' | 'active' | 'draft' | 'error'>('all');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<WorkflowMeta | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowMeta[]>(mockWorkflows);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
 
   const filtered: WorkflowMeta[] = workflows.filter((w: WorkflowMeta) => {
     if (filter === 'active' && w.status !== 'Active') return false;
@@ -38,9 +44,39 @@ export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkf
     setSelected(meta);
   };
 
+  const displayName = useMemo(() => {
+    if (!profile) return 'User';
+    return profile.name?.trim() || profile.username || profile.email || 'User';
+  }, [profile]);
+
+  const avatarUrl = useMemo(() => getAvatarUrl(profile) || null, [profile]);
+  useEffect(() => { setAvatarFailed(false); }, [avatarUrl]);
+  const initials = useMemo(() => {
+    const source = displayName.trim();
+    if (!source) return 'U';
+    const letters = source.match(/\b\w/g);
+    const pair = letters ? letters.slice(0, 2).join('') : source.slice(0, 2);
+    return pair.toUpperCase();
+  }, [displayName]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!accountMenuRef.current) return;
+      if (!accountMenuRef.current.contains(e.target as Node)) setAccountMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const showSidebar = !selected;
+  const mainStyle: React.CSSProperties = selected
+    ? { flex: 1, width: '100%', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }
+    : { flex: 1, padding: '24px 32px', overflow: 'auto', width: '100%' };
+
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, sans-serif', background: '#f8f9fb' }}>
       {/* Sidebar */}
+      {showSidebar && (
       <aside style={{ width: sidebarCollapsed ? 64 : 220, transition: 'width .2s', background: '#ffffff', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', padding: sidebarCollapsed ? '16px 8px' : '16px 12px', gap: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: 8 }}>
           <div style={{ fontSize: 20, fontWeight: 700 }}>{sidebarCollapsed ? 'L' : 'Logo'}</div>
@@ -81,15 +117,49 @@ export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkf
             }}
           >{sidebarCollapsed ? 'RP' : 'Report'}</button>
         </nav>
-        <div style={{ marginTop: 'auto', borderTop: '1px solid #e5e7eb', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#111827', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>U</div>
-          {!sidebarCollapsed && <div style={{ flex: 1 }}>Username</div>}
-          <button style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}>⋮</button>
+        <div
+          ref={accountMenuRef}
+          style={{ marginTop: 'auto', borderTop: '1px solid #e5e7eb', padding: 12, display: 'flex', alignItems: 'center', gap: 8, background: '#f3f4f6', borderRadius: 14, position: 'relative' }}
+        >
+          {avatarUrl && !avatarFailed ? (
+            <img
+              src={avatarUrl}
+              alt={displayName}
+              style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: '1px solid #d1d5db' }}
+              onError={() => setAvatarFailed(true)}
+            />
+          ) : (
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#111827', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 600 }}>{initials}</div>
+          )}
+          {!sidebarCollapsed && (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
+              {profile?.email && <div style={{ fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.email}</div>}
+            </div>
+          )}
+          <button
+            title="Account menu"
+            onClick={() => setAccountMenuOpen((v) => !v)}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
+          >
+            ⋮
+          </button>
+          {accountMenuOpen && !sidebarCollapsed && (
+            <div style={{ position: 'absolute', right: 0, bottom: 56, background: '#ffffff', border: '1px solid #e5e7eb', borderRadius: 12, boxShadow: '0 10px 24px rgba(0,0,0,0.15)', padding: 8, minWidth: 160 }}>
+              <button
+                onClick={() => logout('/')}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1px solid transparent', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontWeight: 600 }}
+              >
+                Đăng xuất
+              </button>
+            </div>
+          )}
         </div>
       </aside>
+      )}
 
-      {/* Content */}
-  <main style={{ flex: 1, padding: '24px 32px', overflow: 'auto', width: '100%' }}>
+        {/* Content */}
+        <main style={mainStyle}>
         {showReport ? (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '10px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -171,13 +241,13 @@ export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkf
             </div>
           </div>
         ) : (
-          <div style={{ position: 'relative', height: '100%', minHeight: '800px' }}>
-            <div style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#f8f9fb', minHeight: 0 }}>
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', gap: 12, alignItems: 'center', background: '#ffffff', flexShrink: 0 }}>
               <button onClick={() => setSelected(null)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#ffffff', cursor: 'pointer' }}>← Back</button>
               <div style={{ fontWeight: 600, fontSize: 18 }}>{selected!.name}</div>
               <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: '#f3f4f6', border: '1px solid #e5e7eb' }}>{selected!.status}</span>
             </div>
-            <div style={{ position: 'absolute', inset: 0 }}>
+            <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
               <WorkflowBuilder />
             </div>
           </div>
