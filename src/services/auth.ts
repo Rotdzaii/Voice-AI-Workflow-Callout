@@ -10,8 +10,11 @@ export type UserProfile = {
 };
 
 function apiBase() {
-  const base = (import.meta as any).env?.VITE_API_BASE_URL || '';
-  return base.replace(/\/$/, '');
+  const envBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
+  if (envBase) return envBase.replace(/\/$/, '');
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  const fallback = hostname === 'localhost' || hostname === '127.0.0.1' ? 'http://localhost:8000' : '';
+  return fallback.replace(/\/$/, '');
 }
 
 export async function loginWithCredentials(email: string, password: string): Promise<boolean> {
