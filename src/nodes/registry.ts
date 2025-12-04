@@ -2,29 +2,26 @@ import type { ComponentType } from 'react';
 import type { NodeProps } from 'reactflow';
 
 // Call
-import { StartCallNode } from './call/StartCallNode';
-import { PlayAudioNode } from './call/PlayAudioNode';
-import { CollectSpeechNode } from './call/CollectSpeechNode';
-import { EndCallNode } from './call/EndCallNode';
+// Backend-wired nodes
+import CallNode from '../components/nodes/CallNode';
+import NLUNode from '../components/nodes/NLUNode';
+import ConversationNode from '../components/nodes/ConversationNode';
+import TelephonyNode from '../components/nodes/TelephonyNode';
+import IntentsNode from '../components/nodes/IntentsNode';
+import EntitiesNode from '../components/nodes/EntitiesNode';
+import WorkflowNode from '../components/nodes/WorkflowNode';
 
 // Speech
-import { SpeechToTextNode } from './speech/SpeechToTextNode';
-import { TextToSpeechNode } from './speech/TextToSpeechNode';
-import { LLMResponseNode } from './speech/LLMResponseNode';
-import { SentimentNode } from './speech/SentimentNode';
+// Removed speech nodes (no direct backend API)
 
 // Logic
-import { ConditionNode } from './logic/ConditionNode';
-import { FallbackNode } from './logic/FallbackNode';
-import { BreakNode } from './logic/BreakNode';
+// Keep minimal logic nodes if needed (removed for backend-only wiring)
 
 // Integration
-import { HttpNode } from './integration/HttpNode';
-import { CRMUpdateNode } from './integration/CRMUpdateNode';
-import { WebhookNode } from './integration/WebhookNode';
+// Removed generic integration nodes (not mapped to backend API)
 
 // Utils
-import { LogNode } from './utils/LogNode';
+// Removed utils log node
 
 export type RegistryEntry = {
   type: string;
@@ -34,30 +31,21 @@ export type RegistryEntry = {
 };
 
 export const NodeRegistry: RegistryEntry[] = [
+  // Workflow
+  { type: 'workflow.manage', title: 'Workflow', component: WorkflowNode as unknown as ComponentType<NodeProps>, category: 'integration' },
+
   // Call
-  { type: 'call.start', title: 'Start Call', component: StartCallNode, category: 'call' },
-  { type: 'call.playAudio', title: 'Play Audio', component: PlayAudioNode, category: 'call' },
-  { type: 'call.collectSpeech', title: 'Collect Speech', component: CollectSpeechNode, category: 'call' },
-  { type: 'call.end', title: 'End Call', component: EndCallNode, category: 'call' },
+  { type: 'call.api', title: 'Call', component: CallNode as unknown as ComponentType<NodeProps>, category: 'call' },
+  { type: 'telephony.originate', title: 'Telephony Originate', component: TelephonyNode as unknown as ComponentType<NodeProps>, category: 'call' },
 
-  // Speech
-  { type: 'speech.stt', title: 'Speech to Text', component: SpeechToTextNode, category: 'speech' },
-  { type: 'speech.tts', title: 'Text to Speech', component: TextToSpeechNode, category: 'speech' },
-  { type: 'speech.llm', title: 'LLM Response', component: LLMResponseNode, category: 'speech' },
-  { type: 'speech.sentiment', title: 'Sentiment', component: SentimentNode, category: 'speech' },
+  // NLU
+  { type: 'nlu.parse', title: 'NLU Parse', component: NLUNode as unknown as ComponentType<NodeProps>, category: 'speech' },
+  { type: 'conversation.next', title: 'Conversation Next', component: ConversationNode as unknown as ComponentType<NodeProps>, category: 'speech' },
+  { type: 'conversation.agent', title: 'Conversation Agent', component: ConversationNode as unknown as ComponentType<NodeProps>, category: 'speech' },
 
-  // Logic
-  { type: 'logic.condition', title: 'Condition', component: ConditionNode, category: 'logic' },
-  { type: 'logic.fallback', title: 'Fallback', component: FallbackNode, category: 'logic' },
-  { type: 'logic.break', title: 'Break', component: BreakNode, category: 'logic' },
-
-  // Integration
-  { type: 'integration.http', title: 'HTTP', component: HttpNode, category: 'integration' },
-  { type: 'integration.crmUpdate', title: 'CRM Update', component: CRMUpdateNode, category: 'integration' },
-  { type: 'integration.webhook', title: 'Webhook', component: WebhookNode, category: 'integration' },
-
-  // Utils
-  { type: 'utils.log', title: 'Log', component: LogNode, category: 'utils' },
+  // Catalog
+  { type: 'catalog.intents', title: 'Intents', component: IntentsNode as unknown as ComponentType<NodeProps>, category: 'integration' },
+  { type: 'catalog.entities', title: 'Entities', component: EntitiesNode as unknown as ComponentType<NodeProps>, category: 'integration' },
 ];
 
 export function nodeTypesMap() {

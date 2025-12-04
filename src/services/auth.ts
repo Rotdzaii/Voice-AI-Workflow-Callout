@@ -10,11 +10,8 @@ export type UserProfile = {
 };
 
 function apiBase() {
-  const envBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
-  if (envBase) return envBase.replace(/\/$/, '');
-  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const fallback = hostname === 'localhost' || hostname === '127.0.0.1' ? 'http://localhost:8000' : '';
-  return fallback.replace(/\/$/, '');
+  const base = (import.meta as any).env?.VITE_API_BASE_URL || '';
+  return base.replace(/\/$/, '');
 }
 
 export async function loginWithCredentials(email: string, password: string): Promise<boolean> {
@@ -81,7 +78,7 @@ function openOAuthPopup(url: string, provider: 'google' | 'github', timeoutMs = 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
-      // Avoid auto-closing popup due to COOP restrictions; let user close manually
+      try { popup.close(); } catch {}
       reject(new Error('OAuth timeout'));
     }, timeoutMs);
 
@@ -92,13 +89,13 @@ function openOAuthPopup(url: string, provider: 'google' | 'github', timeoutMs = 
       // If backend echoes the nonce, verify; otherwise allow for backward compat
       if (d?.nonce && d.nonce !== webNonce) {
         cleanup();
+        try { popup.close(); } catch {}
         reject(new Error('OAuth response nonce mismatch'));
         return;
       }
       cleanup();
+      try { popup.close(); } catch {}
       if (d.ok && d.token) {
-        // Fire a success event so UI can show toast/snackbar
-        try { window.dispatchEvent(new CustomEvent('auth:login-success', { detail: { provider, token: String(d.token) } })); } catch {}
         resolve(String(d.token));
       } else {
         reject(new Error(String(d.error || 'OAuth failed')));
@@ -108,7 +105,7 @@ function openOAuthPopup(url: string, provider: 'google' | 'github', timeoutMs = 
     const interval = window.setInterval(() => {
       if (popup.closed) {
         window.clearInterval(interval);
-        // Do not force-close or reject here; rely on postMessage result
+        // do not reject immediately; maybe a message already resolved
       }
     }, 300);
 
@@ -284,4 +281,3 @@ function normalizeGoogleAvatar(url: string, size: number = 128): string {
     return url;
   }
 }
-// Feature: OAuth integration implemented
