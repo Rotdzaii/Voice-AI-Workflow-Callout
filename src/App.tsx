@@ -1,87 +1,46 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import HomePage from './HomePage';
-import WorkflowBuilder from './components/WorkflowBuilder';
-import ReportPage from './ReportPage.tsx';
 import LoginPage from './pages/LoginPage';
 import CredentialsPage from './pages/CredentialsPage';
-import { fetchCurrentUser, getStoredProfile, type UserProfile } from './services/auth';
+import WorkflowBuilder from './components/WorkflowBuilder';
+import ReportPage from './ReportPage.tsx';
 
-type ViewState = { kind: 'home' } | { kind: 'builder'; workflowId?: string } | { kind: 'report' };
+type ViewState =
+  | { kind: 'home' }
+  | { kind: 'builder'; workflowId?: string }
+  | { kind: 'report' }
+  | { kind: 'login' }
+  | { kind: 'loginCredentials' };
 
 function App() {
-  const [view, setView] = useState<ViewState>({ kind: 'home' });
-  const [authScreen, setAuthScreen] = useState<'login' | 'credentials'>('login');
-  const [authReady, setAuthReady] = useState(false);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-
-  useEffect(() => {
-    let canceled = false;
-    async function bootstrapProfile() {
-      const local = getStoredProfile();
-      if (local) {
-        if (!canceled) {
-          setProfile(local);
-          setAuthReady(true);
-        }
-        return;
-      }
-      const fetched = await fetchCurrentUser().catch(() => null);
-      if (!canceled) {
-        setProfile(fetched);
-        setAuthReady(true);
-      }
-    }
-    bootstrapProfile();
-    return () => {
-      canceled = true;
-    };
-  }, []);
-
-  const resolveProfile = async () => {
-    const local = getStoredProfile();
-    if (local) return local;
-    return fetchCurrentUser().catch(() => null);
-  };
-
-  const handleAuthSuccess = async () => {
-    const next = await resolveProfile();
-    setProfile(next);
-    setAuthScreen('login');
-    setView({ kind: 'home' });
-  };
-
-  if (!authReady) {
-    return (
-      <div style={{ width: '100%', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif' }}>
-        Đang tải...
-      </div>
-    );
-  }
-
-  if (!profile) {
-    return authScreen === 'credentials' ? (
-      <CredentialsPage
-        onBack={() => setAuthScreen('login')}
-        onSuccess={handleAuthSuccess}
-      />
-    ) : (
-      <LoginPage
-        onBack={() => setAuthScreen('login')}
-        onOpenCredentials={() => setAuthScreen('credentials')}
-      />
-    );
-  }
+  // Require login before accessing app content
+  const initialView: ViewState = (typeof localStorage !== 'undefined' && localStorage.getItem('auth_token')) ? { kind: 'home' } : { kind: 'login' };
+  const [view, setView] = useState<ViewState>(initialView);
+  const authed = typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token');
+  const v: ViewState = (!authed && view.kind !== 'login' && view.kind !== 'loginCredentials') ? { kind: 'login' } : view;
 
   return (
     <div style={{ width: '100%', height: '100vh' }}>
-      {view.kind === 'home' && (
+      {v.kind === 'home' && (
         <HomePage
-          profile={profile}
           onOpenWorkflow={(wf) => setView({ kind: 'builder', workflowId: wf.id })}
           onOpenReport={() => setView({ kind: 'report' })}
         />
       )}
-      {view.kind === 'report' && (
+            {v.kind === 'login' && (
+              <LoginPage
+                onBack={() => setView(authed ? { kind: 'home' } : { kind: 'login' })}
+                onOpenCredentials={() => setView({ kind: 'loginCredentials' })}
+              />
+            )}
+
+            {v.kind === 'loginCredentials' && (
+              <CredentialsPage
+                onBack={() => setView({ kind: 'login' })}
+                onSuccess={() => setView({ kind: 'home' })}
+              />
+            )}
+      {v.kind === 'report' && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '10px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 12 }}>
             <button onClick={() => setView({ kind: 'home' })} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: '#ffffff', cursor: 'pointer' }}>← Back</button>
@@ -93,8 +52,8 @@ function App() {
         </div>
       )}
 
-      {view.kind === 'builder' && (
-        <BuilderWithHeader onBack={() => setView({ kind: 'home' })} onReview={() => setView({ kind: 'report' })} workflowId={view.workflowId} />
+      {v.kind === 'builder' && (
+        <BuilderWithHeader onBack={() => setView({ kind: 'home' })} onReview={() => setView({ kind: 'report' })} workflowId={v.workflowId} />
       )}
     </div>
   );
