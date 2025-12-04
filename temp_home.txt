@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import WorkflowBuilder from './components/WorkflowBuilder';
 import ReportPage from './ReportPage.tsx';
 import { getAvatarUrl, logout, type UserProfile } from './services/auth';
@@ -106,16 +106,16 @@ export default function HomePage({ profile, onOpenWorkflow, onOpenReport }: Home
             {!sidebarCollapsed && (
               <button
                 onClick={() => setSidebarCollapsed(true)}
-                title="Thu gọn"
+                title="Thu g?n"
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: palette.text }}
-              >‹</button>
+              >�</button>
             )}
             {sidebarCollapsed && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                title="Mở rộng"
+                title="M? r?ng"
                 style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: palette.text }}
-              >›</button>
+              >�</button>
             )}
           </div>
           <nav style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -175,13 +175,13 @@ export default function HomePage({ profile, onOpenWorkflow, onOpenReport }: Home
               title="Account menu"
               onClick={() => setAccountMenuOpen((v) => !v)}
               style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: palette.text }}
-            >⋮</button>
+            >?</button>
             {accountMenuOpen && !sidebarCollapsed && (
               <div style={{ position: 'absolute', right: 0, bottom: 56, background: palette.panel, border: `1px solid ${palette.border}`, borderRadius: 12, boxShadow: '0 10px 24px rgba(0,0,0,0.25)', padding: 8, minWidth: 160 }}>
                 <button
                   onClick={() => logout('/')}
                   style={{ width: '100%', padding: '8px 10px', borderRadius: 10, border: '1px solid transparent', background: 'transparent', textAlign: 'left', cursor: 'pointer', fontWeight: 600, color: palette.text }}
-                >Đăng xuất</button>
+                >�ang xu?t</button>
               </div>
             )}
           </div>
@@ -192,7 +192,7 @@ export default function HomePage({ profile, onOpenWorkflow, onOpenReport }: Home
         {showReport ? (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <div style={{ padding: '10px 16px', borderBottom: `1px solid ${palette.border}`, display: 'flex', alignItems: 'center', gap: 12, background: palette.panel, color: palette.text, borderRadius: 12 }}>
-              <button onClick={() => setShowReport(false)} style={ghostBtn}>‹ Back</button>
+              <button onClick={() => setShowReport(false)} style={ghostBtn}>� Back</button>
               <div style={{ fontWeight: 700 }}>Workflow Performance Dashboard</div>
             </div>
             <div style={{ flex: 1 }}>
@@ -244,7 +244,7 @@ export default function HomePage({ profile, onOpenWorkflow, onOpenReport }: Home
                       style={{
                         display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', alignItems: 'center', padding: '8px 12px', cursor: 'pointer',
                         border: `1px solid ${palette.border}`, margin: '4px 8px', borderRadius: 12, background: active ? '#0f172a' : '#111827',
-                        boxShadow: active ? '0 0 0 2px #1f2937 inset' : 'none', color: palette.text,
+                        boxShadow: active ? '0 0 0 2px #1f2937 inset' : 'none', color: palette.text
                       }}
                     >
                       <div>{w.name}</div>
@@ -263,7 +263,7 @@ export default function HomePage({ profile, onOpenWorkflow, onOpenReport }: Home
         ) : (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0b111b', minHeight: 0, borderRadius: 16, padding: 12 }}>
             <div style={{ padding: '10px 16px', borderBottom: `1px solid ${palette.border}`, display: 'flex', gap: 12, alignItems: 'center', background: '#0f172a', color: palette.text, borderRadius: 12, boxShadow: '0 10px 24px rgba(0,0,0,0.2)' }}>
-              <button onClick={() => setSelected(null)} style={{ ...ghostBtn, background: '#0b111b', color: palette.text }}>‹ Back</button>
+              <button onClick={() => setSelected(null)} style={{ ...ghostBtn, background: '#0b111b', color: palette.text }}>� Back</button>
               <div style={{ fontWeight: 600, fontSize: 18 }}>{selected!.name}</div>
               <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: '#0b111b', border: `1px solid ${palette.border}` }}>{selected!.status}</span>
             </div>
