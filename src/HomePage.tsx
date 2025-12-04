@@ -63,6 +63,7 @@ export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkf
     const meta: WorkflowMeta = { id, name: 'New_Workflow', status: 'Draft', updatedAt: new Date().toLocaleString() };
     setWorkflows(prev => [meta, ...prev]);
     setSelected(meta);
+    onOpenWorkflow?.(meta);
   };
 
   return (
