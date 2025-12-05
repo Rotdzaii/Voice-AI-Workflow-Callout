@@ -4,6 +4,7 @@ import type { NodeProps } from 'reactflow';
 // Call
 // Backend-wired nodes
 import CallNode from '../components/nodes/CallNode';
+import CallStartNode from '../components/nodes/CallStartNode';
 import NLUNode from '../components/nodes/NLUNode';
 import ConversationNode from '../components/nodes/ConversationNode';
 import TelephonyNode from '../components/nodes/TelephonyNode';
@@ -35,7 +36,8 @@ export const NodeRegistry: RegistryEntry[] = [
   { type: 'workflow.manage', title: 'Workflow', component: WorkflowNode as unknown as ComponentType<NodeProps>, category: 'integration' },
 
   // Call
-  { type: 'call.api', title: 'Call', component: CallNode as unknown as ComponentType<NodeProps>, category: 'call' },
+  { type: 'call.start', title: 'Call Start', component: CallStartNode as unknown as ComponentType<NodeProps>, category: 'call' },
+  { type: 'call.api', title: 'Call (Advanced)', component: CallNode as unknown as ComponentType<NodeProps>, category: 'call' },
   { type: 'telephony.originate', title: 'Telephony Originate', component: TelephonyNode as unknown as ComponentType<NodeProps>, category: 'call' },
 
   // NLU

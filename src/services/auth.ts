@@ -10,8 +10,15 @@ export type UserProfile = {
 };
 
 function apiBase() {
-  const base = (import.meta as any).env?.VITE_API_BASE_URL || '';
-  return base.replace(/\/$/, '');
+  const envBase = (import.meta as any).env?.VITE_API_BASE_URL;
+  if (envBase && envBase.trim()) {
+    return envBase.trim().replace(/\/$/, '');
+  }
+  const origin = window.location.origin;
+  if (/localhost:5173|127\.0\.0\.1:5173/.test(origin)) {
+    return 'http://localhost:8000';
+  }
+  return origin.replace(/\/$/, '');
 }
 
 export async function loginWithCredentials(email: string, password: string): Promise<boolean> {
