@@ -372,7 +372,6 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     onRegisterRun(run);
   }, [onRegisterRun, startFlow]);
 
-
   useEffect(() => {
     setNodes(prev => prev.map(n => {
       const isActive = simNodeId && n.id === simNodeId;

@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@statelyai/inspect": "^0.4.0",
+    "@types/react-router-dom": "^5.3.3",
     "@xstate/react": "^6.0.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-router-dom": "^7.10.1",
     "reactflow": "^11.11.4",
     "xstate": "^5.23.0"
   },
