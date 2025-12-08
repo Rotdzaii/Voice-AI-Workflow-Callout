@@ -11,7 +11,7 @@ from .conversation import process_turn
 from .asterisk import originate
 from .models import NLUParseIn, NLUParseOut, ConversationIn, ConversationOut, CallStartIn, CallReplyIn, ConversationAgentIn
 from fastapi.middleware.cors import CORSMiddleware
-from .config import env_str, DEV_AUTH_ALLOW_NO_DB
+from .config import DEV_AUTH_ALLOW_NO_DB
 from .deeppavlov_client import get_agent
 from starlette.responses import RedirectResponse, HTMLResponse, JSONResponse
 from urllib.parse import urlencode
@@ -36,8 +36,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="VoiceAI - Backend (MVP)", lifespan=lifespan)
 
 # Enable CORS for frontend integration
-allowed_origins = env_str("ALLOWED_ORIGINS", "*")
-origins = [o.strip() for o in allowed_origins.split(",") if o.strip()]
+origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+]
+
+print(f"🔒 CORS Configured for: {origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,

@@ -1,4 +1,5 @@
-export type LoginResponse = { success: boolean; token?: string; message?: string };
+export type LoginResponse = { success: boolean; token?: string; message?: string; requiresReset?: boolean };
+export type AccountLookupResponse = { exists: boolean; message?: string };
 
 export type UserProfile = {
   id?: string;
@@ -9,47 +10,70 @@ export type UserProfile = {
   username?: string;
 };
 
-function apiBase() {
-  const envBase = (import.meta as any).env?.VITE_API_BASE_URL;
-  if (envBase && envBase.trim()) {
-    return envBase.trim().replace(/\/$/, '');
-  }
-  const origin = window.location.origin;
-  if (/localhost:5173|127\.0\.0\.1:5173/.test(origin)) {
-    return 'http://localhost:8000';
-  }
-  return origin.replace(/\/$/, '');
+export function apiBase() {
+  const envBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
+  if (envBase) return envBase.replace(/\/$/, '');
+  const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  const fallback = hostname === 'localhost' || hostname === '127.0.0.1' ? 'http://localhost:8000' : '';
+  return fallback.replace(/\/$/, '');
 }
 
-export async function loginWithCredentials(email: string, password: string): Promise<boolean> {
-  // Placeholder for backend integration. Frontend team can connect to real API later.
-  const url = `${apiBase()}/api/auth/login`;
+// NOTE: Backend endpoints invoked here must hash passwords, rate-limit attempts, and rely on parameterized SQL to prevent injection.
+export async function loginWithCredentials(email: string, password: string): Promise<LoginResponse> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const base = (apiBase() || '').replace(/\/$/, '');
+  const url = `${base}/auth/token`;
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+      },
+      credentials: 'include',
+      body: new URLSearchParams({ username: normalizedEmail, password }),
     });
-    if (!res.ok) return false;
-    const data: LoginResponse = await res.json().catch(() => ({ success: false }));
-    if (data?.success && data?.token) {
-      localStorage.setItem('auth_token', data.token);
-      // Try to infer and store profile for local login
-      saveProfileFromToken(data.token, 'local');
-      return true;
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data?.access_token) {
+      const token = data.access_token as string;
+      localStorage.setItem('auth_token', token);
+      saveProfileFromToken(token, 'local');
+      return { success: true, token };
     }
-    return false;
-  } catch {
-    // Fallback demo behavior (remove when backend is ready)
-    const ok = email.length > 3 && password.length > 3;
+    return { success: false, message: data?.detail || data?.message || 'Invalid email or password.' };
+  } catch (err: any) {
+    // Demo fallback to keep local development unblocked.
+    const ok = normalizedEmail.length > 3 && password.length > 3;
     if (ok) {
       localStorage.setItem('auth_token', 'DEMO_TOKEN');
-      // Minimal local demo profile
-      const name = email?.split('@')[0] || 'User';
-      const demoProfile: UserProfile = { name, email, provider: 'local', username: name };
+      const name = normalizedEmail.split('@')[0] || 'User';
+      const demoProfile: UserProfile = { name, email: normalizedEmail, provider: 'local', username: name };
       localStorage.setItem('auth_user', JSON.stringify(demoProfile));
+      return { success: true, token: 'DEMO_TOKEN', message: 'Demo login only. Replace with secure backend.' };
     }
-    return ok;
+    return { success: false, message: err?.message || 'Unable to reach auth server.' };
+  }
+}
+
+// Lightweight lookup used to hint whether the email exists before we prompt for password entry.
+// Server-side handlers should continue to blur timing to avoid account enumeration attacks.
+export async function verifyAccount(email: string): Promise<AccountLookupResponse> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return { exists: false };
+  const base = (apiBase() || '').replace(/\/$/, '');
+  const url = `${base}/auth/accounts/lookup`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildSecureHeaders(),
+      credentials: 'include',
+      body: JSON.stringify({ email: normalizedEmail })
+    });
+    if (!res.ok) return { exists: false };
+    const data = await res.json().catch(() => ({}));
+    return { exists: Boolean(data.exists), message: data?.message };
+  } catch {
+    return { exists: false };
   }
 }
 
@@ -287,4 +311,21 @@ function normalizeGoogleAvatar(url: string, size: number = 128): string {
   } catch {
     return url;
   }
+}
+
+function buildSecureHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Requested-With': 'XMLHttpRequest',
+  };
+  const csrf = getCsrfToken();
+  if (csrf) headers['X-CSRF-Token'] = csrf;
+  return headers;
+}
+
+function getCsrfToken(): string | undefined {
+  const meta = typeof document !== 'undefined'
+    ? (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null)
+    : null;
+  return meta?.content || undefined;
 }

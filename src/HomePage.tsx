@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import WorkflowBuilder from './components/WorkflowBuilder';
 import ReportPage from './ReportPage.tsx';
-import { fetchCurrentUser, getStoredProfile, logout, getAvatarUrl, getAvatarCandidates, type UserProfile } from './services/auth';
+import { getAvatarUrl, logout, type UserProfile } from './services/auth';
+import { useTheme } from './state/ThemeContext';
 
 interface WorkflowMeta {
   id: string;
@@ -16,271 +17,438 @@ const mockWorkflows: WorkflowMeta[] = [
   { id: 'wf-3', name: 'QA_Router', status: 'Error', updatedAt: 'dd/mm/yyyy - 00:00' },
 ];
 
-export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkflow?: (wf: WorkflowMeta) => void; onOpenReport?: () => void }) {
+type Palette = {
+  bg: string;
+  panel: string;
+  surface: string;
+  card: string;
+  cardAlt: string;
+  text: string;
+  textMuted: string;
+  border: string;
+  borderLight: string;
+  shadow: string;
+  mainBg: string;
+  navBg: string;
+  accent: string;
+  accentText: string;
+  chipBg: string;
+  inputBg: string;
+  highlight: string;
+};
+
+const palettes: Record<'dark' | 'light', Palette> = {
+  dark: {
+    bg: 'radial-gradient(circle at 16% 18%, rgba(255,255,255,0.06), transparent 30%), radial-gradient(circle at 82% 12%, rgba(255,255,255,0.04), transparent 25%), linear-gradient(135deg, #0a0c11 0%, #0f131b 45%, #090b10 100%)',
+    panel: 'rgba(15, 20, 36, 0.96)',
+    surface: '#0b111b',
+    card: '#0f172a',
+    cardAlt: '#111827',
+    text: '#e5e7eb',
+    textMuted: '#94a3b8',
+    border: '#1f2937',
+    borderLight: 'rgba(255,255,255,0.12)',
+    shadow: '0 24px 60px rgba(0,0,0,0.35)',
+    mainBg: 'rgba(9,11,16,0.6)',
+    navBg: '#0b111b',
+    accent: '#0f172a',
+    accentText: '#f8fafc',
+    chipBg: '#0b111b',
+    inputBg: '#0f131b',
+    highlight: '#0f172a',
+  },
+  light: {
+    bg: 'radial-gradient(circle at 18% 20%, rgba(17,24,39,0.05), transparent 32%), radial-gradient(circle at 78% 10%, rgba(17,24,39,0.08), transparent 30%), linear-gradient(135deg, #f5f7ff 0%, #eef2ff 40%, #e3e7ff 100%)',
+    panel: 'rgba(255,255,255,0.94)',
+    surface: '#f6f7ff',
+    card: '#ffffff',
+    cardAlt: '#f4f6ff',
+    text: '#0f172a',
+    textMuted: '#475467',
+    border: '#cfd6ed',
+    borderLight: 'rgba(15,23,42,0.2)',
+    shadow: '0 24px 60px rgba(15,23,42,0.12)',
+    mainBg: 'rgba(255,255,255,0.9)',
+    navBg: '#f1f4ff',
+    accent: '#111c3d',
+    accentText: '#ffffff',
+    chipBg: '#f6f7ff',
+    inputBg: '#ffffff',
+    highlight: '#dfe4ff',
+  },
+};
+
+type HomePageProps = {
+  profile?: UserProfile | null;
+  onOpenWorkflow?: (wf: WorkflowMeta) => void;
+  onOpenReport?: () => void;
+};
+
+export default function HomePage({ profile, onOpenWorkflow, onOpenReport }: HomePageProps) {
+  const { theme } = useTheme();
+  const palette = useMemo(() => (theme === 'light' ? palettes.light : palettes.dark), [theme]);
   const [filter, setFilter] = useState<'all' | 'active' | 'draft' | 'error'>('all');
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState<WorkflowMeta | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowMeta[]>(mockWorkflows);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const userMenuRef = useRef<HTMLDivElement | null>(null);
-  const [avatarSrc, setAvatarSrc] = useState<string | undefined>(undefined);
-  const avatarIdxRef = useRef(0);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const [runAction, setRunAction] = useState<(() => void) | null>(null);
+  const [reviewAction, setReviewAction] = useState<(() => void) | null>(null);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  const selectedWorkflow = useMemo(
+    () => workflows.find((wf) => wf.id === selectedId) ?? null,
+    [selectedId, workflows],
+  );
+
+  const filtered = useMemo(() => {
+    return workflows.filter((w) => {
+      if (filter === 'active' && w.status !== 'Active') return false;
+      if (filter === 'draft' && w.status !== 'Draft') return false;
+      if (filter === 'error' && w.status !== 'Error') return false;
+      if (query && !w.name.toLowerCase().includes(query.toLowerCase())) return false;
+      return true;
+    });
+  }, [filter, query, workflows]);
+
+  const displayName = useMemo(() => {
+    if (!profile) return 'User';
+    return profile.name?.trim() || profile.username || profile.email || 'User';
+  }, [profile]);
+
+  const avatarUrl = useMemo(() => getAvatarUrl(profile) || null, [profile]);
 
   useEffect(() => {
-    let alive = true;
-    (async () => {
-      // Try backend /auth/me first, then fallback to stored/decoded profile
-      const profile = await fetchCurrentUser().catch(() => null) || getStoredProfile();
-      if (alive) setUser(profile || null);
-    })();
-    const onDoc = (e: MouseEvent) => {
-      if (!userMenuRef.current) return;
-      if (!userMenuRef.current.contains(e.target as Node)) setUserMenuOpen(false);
+    setAvatarFailed(false);
+  }, [avatarUrl]);
+
+  const initials = useMemo(() => {
+    const source = displayName.trim();
+    if (!source) return 'U';
+    const letters = source.match(/\b\w/g);
+    const pair = letters ? letters.slice(0, 2).join('') : source.slice(0, 2);
+    return pair.toUpperCase();
+  }, [displayName]);
+
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!accountMenuRef.current) return;
+      if (!accountMenuRef.current.contains(e.target as Node)) setAccountMenuOpen(false);
     };
-    document.addEventListener('mousedown', onDoc);
-    return () => { alive = false; document.removeEventListener('mousedown', onDoc); };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
   useEffect(() => {
-    const cands = getAvatarCandidates(user);
-    avatarIdxRef.current = 0;
-    setAvatarSrc(cands[0]);
-  }, [user]);
+    if (!selectedWorkflow) {
+      setRunAction(null);
+      setReviewAction(null);
+    }
+  }, [selectedWorkflow]);
 
-  const filtered: WorkflowMeta[] = workflows.filter((w: WorkflowMeta) => {
-    if (filter === 'active' && w.status !== 'Active') return false;
-    if (filter === 'draft' && w.status !== 'Draft') return false;
-    if (filter === 'error' && w.status !== 'Error') return false;
-    if (query && !w.name.toLowerCase().includes(query.toLowerCase())) return false;
-    return true;
-  });
+  const showSidebar = !selectedWorkflow;
+  const mainStyle: CSSProperties = selectedWorkflow
+    ? { flex: 1, width: '100%', padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }
+    : { flex: 1, padding: '24px 32px', overflow: 'auto', width: '100%' };
+
+  const handleAvatarError = () => setAvatarFailed(true);
+
+  const resetToWorkflowList = () => {
+    setSelectedId(null);
+    setFilter('all');
+    setQuery('');
+    setShowReport(false);
+  };
+
+  const openReport = () => {
+    if (onOpenReport) {
+      onOpenReport();
+      return;
+    }
+    setSelectedId(null);
+    setShowReport(true);
+  };
 
   const createNew = () => {
     const id = `wf-${Date.now()}`;
     const meta: WorkflowMeta = { id, name: 'New_Workflow', status: 'Draft', updatedAt: new Date().toLocaleString() };
-    setWorkflows(prev => [meta, ...prev]);
-    setSelected(meta);
+    setWorkflows((prev) => [meta, ...prev]);
+    setSelectedId(id);
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, sans-serif', background: '#f8f9fb' }}>
-      {/* Sidebar */}
-      <aside style={{ width: sidebarCollapsed ? 64 : 220, transition: 'width .2s', background: '#ffffff', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', padding: sidebarCollapsed ? '16px 8px' : '16px 12px', gap: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: 8 }}>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>{sidebarCollapsed ? 'L' : 'Logo'}</div>
-          {!sidebarCollapsed && (
-            <button
-              onClick={() => setSidebarCollapsed(true)}
-              title="Thu gọn"
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
-            >⇤</button>
-          )}
-          {sidebarCollapsed && (
-            <button
-              onClick={() => setSidebarCollapsed(false)}
-              title="Mở rộng"
-              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
-            >⇥</button>
-          )}
-        </div>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <button
-            style={navBtnStyle}
-            onClick={() => {
-              setSelected(null);
-              setFilter('all');
-              setQuery('');
-              setShowReport(false);
+    <div
+      style={{
+        display: 'flex',
+        width: '100%',
+        height: '100%',
+        minHeight: '100vh',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        background: palette.bg,
+        color: palette.text,
+      }}
+    >
+      {showSidebar && (
+        <aside
+          style={{
+            width: sidebarCollapsed ? 64 : 220,
+            transition: 'width .2s',
+            background: palette.panel,
+            borderRight: `1px solid ${palette.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            padding: sidebarCollapsed ? '16px 8px' : '16px 12px',
+            gap: 24,
+            boxShadow: palette.shadow,
+            borderRadius: 12,
+            margin: 12,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: sidebarCollapsed ? 'center' : 'space-between',
+              gap: 8,
             }}
-          >{sidebarCollapsed ? 'WF' : 'Workflow'}</button>
-          <button
-            style={navBtnStyle}
-            onClick={() => {
-              if (onOpenReport) {
-                onOpenReport();
-              } else {
-                setSelected(null);
-                setShowReport(true);
-              }
-            }}
-          >{sidebarCollapsed ? 'RP' : 'Report'}</button>
-        </nav>
-        <div ref={userMenuRef} style={{ marginTop: 'auto', borderTop: '1px solid #e5e7eb', paddingTop: 12, position: 'relative' }}>
-          <button
-            onClick={() => setUserMenuOpen(v => !v)}
-            title={user?.email || user?.name || 'Account'}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0 }}
           >
-            {(() => { const a = avatarSrc || getAvatarUrl(user); return a; })() ? (
+            <div style={{ fontSize: 20, fontWeight: 700 }}>{sidebarCollapsed ? 'V' : 'VoiceAI'}</div>
+            {!sidebarCollapsed && (
+              <button
+                onClick={() => setSidebarCollapsed(true)}
+                title="Thu gọn"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: palette.text }}
+              >
+                ‹
+              </button>
+            )}
+            {sidebarCollapsed && (
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                title="Mở rộng"
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: palette.text }}
+              >
+                ›
+              </button>
+            )}
+          </div>
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <button style={navBtnStyle(palette)} onClick={resetToWorkflowList}>
+              {sidebarCollapsed ? 'WF' : 'Workflow'}
+            </button>
+            <button style={navBtnStyle(palette)} onClick={openReport}>
+              {sidebarCollapsed ? 'RP' : 'Report'}
+            </button>
+          </nav>
+          <div
+            ref={accountMenuRef}
+            style={{
+              marginTop: 'auto',
+              borderTop: `1px solid ${palette.border}`,
+              padding: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: palette.surface,
+              borderRadius: 14,
+              position: 'relative',
+              color: palette.text,
+            }}
+          >
+            {avatarUrl && !avatarFailed ? (
               <img
-                src={avatarSrc || getAvatarUrl(user)}
-                alt={user?.name || 'avatar'}
-                onError={() => {
-                  const list = getAvatarCandidates(user);
-                  avatarIdxRef.current += 1;
-                  setAvatarSrc(list[avatarIdxRef.current]);
-                }}
-                style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', border: '1px solid #d1d5db' }}
+                src={avatarUrl}
+                alt={displayName}
+                style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', border: `1px solid ${palette.border}` }}
+                onError={handleAvatarError}
               />
             ) : (
-              <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#111827', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
-                {(user?.name || 'User').slice(0,1).toUpperCase()}
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: '50%',
+                  background: '#111827',
+                  color: 'white',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                {initials}
               </div>
             )}
-            {!sidebarCollapsed && <div style={{ flex: 1, textAlign: 'left' }}>{user?.name || 'User'}</div>}
-            <span aria-hidden>⋮</span>
-          </button>
-
-          {userMenuOpen && (
-            <div
-              style={{
-                position: 'absolute',
-                left: sidebarCollapsed ? 8 : 0,
-                right: 0,
-                bottom: 48,
-                background: '#121212',
-                color: 'white',
-                borderRadius: 12,
-                boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
-                padding: 8,
-                minWidth: sidebarCollapsed ? 220 : 240,
-                zIndex: 9999,
-                border: '1px solid rgba(255,255,255,0.08)'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                {(() => { const a = avatarSrc || getAvatarUrl(user); return a; })() ? (
-                  <img
-                    src={avatarSrc || getAvatarUrl(user)}
-                    alt={user?.name || 'avatar'}
-                    onError={() => {
-                      const list = getAvatarCandidates(user);
-                      avatarIdxRef.current += 1;
-                      setAvatarSrc(list[avatarIdxRef.current]);
-                    }}
-                    style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#ffffff', color: '#111827', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}>
-                    {(user?.name || 'U').slice(0,1).toUpperCase()}
-                  </div>
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13 }}>{user?.name || 'User'}</div>
-                  <div style={{ fontSize: 11, opacity: 0.8 }}>{user?.email || (user?.provider ? `Signed in via ${user.provider}` : '')}</div>
+            {!sidebarCollapsed && (
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 14,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {displayName}
                 </div>
-              </div>
-              {/* Provider badges */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 2px 0 2px', color: 'rgba(255,255,255,0.9)' }}>
-                {user?.provider === 'google' && (
-                  <div title="Google" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                    <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden>
-                      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.1 31.9 29 35 24 35c-6.1 0-11-4.9-11-11s4.9-11 11-11c2.8 0 5.4 1.1 7.3 2.9l5.7-5.7C33.6 6.1 29 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"/>
-                      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16.3 19 13 24 13c2.8 0 5.4 1.1 7.3 2.9l5.7-5.7C33.6 6.1 29 4 24 4 16 4 9.1 8.4 6.3 14.7z"/>
-                      <path fill="#4CAF50" d="M24 44c5 0 9.6-1.9 13-5.1l-6-4.9C29.1 35.1 26.7 36 24 36c-5 0-9.2-3.1-10.8-7.5l-6.7 5.2C9.2 39.6 16 44 24 44z"/>
-                      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-1 2.8-3 5.2-5.7 6.8l6 4.9C38.1 36.6 40 30.7 40 24c0-1.2-.1-2.3-.4-3.5z"/>
-                    </svg>
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>Google</span>
-                  </div>
-                )}
-                {user?.provider === 'github' && (
-                  <div title="GitHub" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-                      <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
-                    </svg>
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>GitHub</span>
-                  </div>
-                )}
-                {(!user?.provider || user?.provider === 'local') && (
-                  <div title="Local account" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)' }}>
-                    <span style={{ display: 'inline-flex', width: 14, height: 14, borderRadius: 7, background: '#6EE7B7' }} />
-                    <span style={{ fontSize: 12, fontWeight: 600 }}>Local</span>
+                {profile?.email && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: palette.textMuted,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {profile.email}
                   </div>
                 )}
               </div>
-              <div style={{ height: 8 }} />
-              <button
-                onClick={() => logout('/')}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.12)', background: 'transparent', color: 'white', cursor: 'pointer' }}
+            )}
+            <button
+              title="Account menu"
+              onClick={() => setAccountMenuOpen((v) => !v)}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: 18, lineHeight: 1, color: palette.text }}
+            >
+              ⋮
+            </button>
+            {accountMenuOpen && !sidebarCollapsed && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  bottom: 56,
+                  background: palette.panel,
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: 12,
+                  boxShadow: '0 10px 24px rgba(0,0,0,0.25)',
+                  padding: 8,
+                  minWidth: 160,
+                }}
               >
-                <span style={{ width: 16 }}>⇦</span>
-                <span>Log out</span>
-              </button>
-            </div>
-          )}
-        </div>
-      </aside>
+                <button
+                  onClick={() => logout('/')}
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    borderRadius: 10,
+                    border: '1px solid transparent',
+                    background: 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    color: palette.text,
+                  }}
+                >
+                  Đăng xuất
+                </button>
+              </div>
+            )}
+          </div>
+        </aside>
+      )}
 
-      {/* Content */}
-  <main style={{ flex: 1, padding: '24px 32px', overflow: 'auto', width: '100%' }}>
+      <main
+        style={{
+          ...mainStyle,
+          background: palette.mainBg,
+          borderRadius: 18,
+          margin: showSidebar ? 12 : 0,
+          boxShadow: palette.shadow,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         {showReport ? (
           <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '10px 16px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button onClick={() => setShowReport(false)} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: '#ffffff', cursor: 'pointer' }}>← Back</button>
+            <div
+              style={{
+                padding: '10px 16px',
+                borderBottom: `1px solid ${palette.border}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                background: palette.panel,
+                color: palette.text,
+                borderRadius: 12,
+              }}
+            >
+              <button onClick={() => setShowReport(false)} style={ghostBtn(palette)}>
+                ‹ Back
+              </button>
               <div style={{ fontWeight: 700 }}>Workflow Performance Dashboard</div>
             </div>
             <div style={{ flex: 1 }}>
               <ReportPage onGoHome={() => setShowReport(false)} />
             </div>
           </div>
-        ) : !selected ? (
-          <div style={{ width: '100%' }}>
-            {/* Search */}
+        ) : !selectedWorkflow ? (
+          <div style={{ width: '100%', color: palette.text }}>
             <div style={{ marginBottom: 24 }}>
               <input
                 placeholder="Search by keyword workflow name..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                style={searchInputStyle}
+                style={searchInputStyle(palette)}
               />
             </div>
-            {/* Filter buttons */}
             <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginBottom: 24 }}>
-              <button
-                onClick={() => setFilter('active')}
-                style={{ ...filterBtnStyle(filter === 'active'), marginLeft: 24 }}
-              >
+              <button onClick={() => setFilter('active')} style={filterBtnStyle(palette, filter === 'active')}>
                 Active Workflows
               </button>
-              <button
-                onClick={() => setFilter('draft')}
-                style={filterBtnStyle(filter === 'draft')}
-              >
+              <button onClick={() => setFilter('draft')} style={filterBtnStyle(palette, filter === 'draft')}>
                 Draft Workflows
               </button>
-              <button
-                onClick={() => setFilter('error')}
-                style={{ ...filterBtnStyle(filter === 'error'), marginRight: 24 }}
-              >
+              <button onClick={() => setFilter('error')} style={filterBtnStyle(palette, filter === 'error')}>
                 Error Workflows
               </button>
             </div>
 
-            {/* Recent Activities panel */}
-            <div style={panelStyle}>
+            <div style={{ ...panelStyle(palette), color: palette.text }}>
               <div style={{ fontWeight: 600, marginBottom: 12 }}>Recent Activities:</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', fontSize: 12, fontWeight: 600, padding: '4px 8px', color: '#374151' }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '2fr 1fr 1fr',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: '4px 8px',
+                  color: palette.textMuted,
+                }}
+              >
                 <div>Workflow name</div>
                 <div>Status</div>
                 <div>Last Modified</div>
               </div>
               <div style={{ maxHeight: 260, overflow: 'auto' }}>
-                {(filtered as WorkflowMeta[]).map((w) => {
-                  const active = (selected as WorkflowMeta | null)?.id === w.id;
+                {filtered.map((w) => {
+                  const active = selectedId === w.id;
                   return (
                     <div
                       key={w.id}
                       onClick={() => {
-                        setSelected(w);
+                        setSelectedId(w.id);
+                        setShowReport(false);
                         onOpenWorkflow?.(w);
                       }}
                       style={{
-                        display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', alignItems: 'center', padding: '8px 12px', cursor: 'pointer',
-                        border: '1px solid #d1d5db', margin: '4px 8px', borderRadius: 12, background: active ? '#ffffff' : '#f3f4f6',
-                        boxShadow: active ? '0 0 0 2px #111827 inset' : 'none'
+                        display: 'grid',
+                        gridTemplateColumns: '2fr 1fr 1fr',
+                        alignItems: 'center',
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        border: `1px solid ${palette.border}`,
+                        margin: '4px 8px',
+                        borderRadius: 12,
+                        background: active ? palette.accent : palette.cardAlt,
+                        boxShadow: active ? `0 0 0 2px ${palette.borderLight} inset` : 'none',
+                        color: active ? palette.accentText : palette.text,
                       }}
                     >
                       <div>{w.name}</div>
@@ -289,22 +457,89 @@ export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkf
                     </div>
                   );
                 })}
-                {filtered.length === 0 && <div style={{ padding: 16, color: '#6b7280' }}>No workflows found.</div>}
+                {filtered.length === 0 && (
+                  <div style={{ padding: 16, color: palette.textMuted }}>No workflows found.</div>
+                )}
               </div>
               <div style={{ textAlign: 'center', marginTop: 24 }}>
-                <button onClick={createNew} style={{ padding: '10px 18px', borderRadius: 12, background: '#ffffff', border: '1px solid #111827', cursor: 'pointer', fontWeight: 600 }}>+ New Workflows</button>
+                <button
+                  onClick={createNew}
+                  style={{
+                    padding: '10px 18px',
+                    borderRadius: 12,
+                    background: palette.accent,
+                    border: `1px solid ${palette.border}`,
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    color: palette.accentText,
+                    boxShadow: palette.shadow,
+                  }}
+                >
+                  + New Workflows
+                </button>
               </div>
             </div>
           </div>
         ) : (
-          <div style={{ position: 'relative', height: '100%', minHeight: '800px' }}>
-            <div style={{ marginBottom: 12, display: 'flex', gap: 12, alignItems: 'center' }}>
-              <button onClick={() => setSelected(null)} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #d1d5db', background: '#ffffff', cursor: 'pointer' }}>← Back</button>
-              <div style={{ fontWeight: 600, fontSize: 18 }}>{selected!.name}</div>
-              <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 12, background: '#f3f4f6', border: '1px solid #e5e7eb' }}>{selected!.status}</span>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: palette.surface, minHeight: 0, borderRadius: 12, padding: 4 }}>
+            <div
+              style={{
+                padding: '10px 16px',
+                borderBottom: `1px solid ${palette.border}`,
+                display: 'flex',
+                gap: 12,
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                background: palette.card,
+                color: palette.text,
+                borderRadius: 12,
+                boxShadow: palette.shadow,
+              }}
+            >
+              <button onClick={resetToWorkflowList} style={{ ...ghostBtn(palette), background: palette.surface, color: palette.text }}>
+                ‹ Back
+              </button>
+              <div style={{ fontWeight: 600, fontSize: 18 }}>{selectedWorkflow?.name}</div>
+              <span
+                style={{
+                  fontSize: 12,
+                  padding: '2px 8px',
+                  borderRadius: 12,
+                  background: palette.surface,
+                  border: `1px solid ${palette.border}`,
+                }}
+              >
+                {selectedWorkflow?.status}
+              </span>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 10 }}>
+                <button
+                  style={{ ...workflowActionBtn(palette), opacity: runAction ? 1 : 0.4, cursor: runAction ? 'pointer' : 'not-allowed' }}
+                  onClick={() => runAction?.()}
+                  disabled={!runAction}
+                >
+                  Run
+                </button>
+                <button
+                  style={{
+                    ...workflowActionBtn(palette),
+                    borderColor: '#f97316',
+                    color: '#f97316',
+                    opacity: reviewAction ? 1 : 0.4,
+                    cursor: reviewAction ? 'pointer' : 'not-allowed',
+                  }}
+                  onClick={() => reviewAction?.()}
+                  disabled={!reviewAction}
+                >
+                  Review
+                </button>
+              </div>
             </div>
-            <div style={{ position: 'absolute', inset: 0 }}>
-              <WorkflowBuilder />
+            <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+              <WorkflowBuilder
+                workflowId={selectedWorkflow?.id}
+                onRegisterRun={(fn) => setRunAction(() => fn)}
+                onRegisterReview={(fn) => setReviewAction(() => fn)}
+              />
             </div>
           </div>
         )}
@@ -313,46 +548,70 @@ export default function HomePage({ onOpenWorkflow, onOpenReport }: { onOpenWorkf
   );
 }
 
-const navBtnStyle: React.CSSProperties = {
+const ghostBtn = (palette: Palette): CSSProperties => ({
+  padding: '10px 14px',
+  borderRadius: 12,
+  border: `1px solid ${palette.border}`,
+  background: palette.surface,
+  cursor: 'pointer',
+  fontWeight: 700,
+  color: palette.text,
+});
+
+const navBtnStyle = (palette: Palette): CSSProperties => ({
   padding: '12px 16px',
   borderRadius: 12,
-  background: '#ffffff',
-  border: '1px solid #111827',
+  background: palette.navBg,
+  border: `1px solid ${palette.border}`,
   fontWeight: 600,
   cursor: 'pointer',
-  textAlign: 'left'
-};
+  textAlign: 'left',
+  color: palette.text,
+});
 
-const searchInputStyle: React.CSSProperties = {
+const searchInputStyle = (palette: Palette): CSSProperties => ({
   width: '100%',
   padding: '14px 18px',
   borderRadius: 14,
-  border: '1px solid #111827',
+  border: `1px solid ${palette.border}`,
   fontSize: 14,
   outline: 'none',
-  boxShadow: '0 2px 4px rgba(0,0,0,0.06)'
-};
+  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+  background: palette.surface,
+  color: palette.text,
+});
 
-function filterBtnStyle(active: boolean): React.CSSProperties {
+function filterBtnStyle(palette: Palette, active: boolean): CSSProperties {
   return {
     padding: '14px 22px',
     borderRadius: 14,
-    border: '1px solid #111827',
-    background: active ? '#ffffff' : '#f3f4f6',
+    border: `1px solid ${palette.border}`,
+    background: active ? palette.accent : palette.navBg,
     cursor: 'pointer',
     fontWeight: 600,
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    boxShadow: active ? '0 0 0 2px #111827 inset' : 'none'
+    color: active ? palette.accentText : palette.text,
+    boxShadow: active ? `0 0 0 2px ${palette.borderLight} inset` : 'none',
   };
 }
 
-const panelStyle: React.CSSProperties = {
-  background: '#ffffff',
-  border: '1px solid #111827',
+const panelStyle = (palette: Palette): CSSProperties => ({
+  background: palette.panel,
+  border: `1px solid ${palette.border}`,
   padding: '24px 16px',
   borderRadius: 18,
-  boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+  boxShadow: palette.shadow,
   minHeight: 360,
-};
+});
+
+const workflowActionBtn = (palette: Palette): CSSProperties => ({
+  padding: '8px 18px',
+  borderRadius: 999,
+  border: `1px solid ${palette.borderLight}`,
+  background: 'transparent',
+  color: palette.text,
+  fontWeight: 600,
+  transition: 'opacity .15s ease',
+});
