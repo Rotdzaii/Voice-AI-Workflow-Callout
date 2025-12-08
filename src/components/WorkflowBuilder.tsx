@@ -60,7 +60,7 @@ function saveWorkflowDetails(key: string, d: WorkflowDetails) {
   }
 }
 
-export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflowId?: string; onRegisterRun?: (fn: () => void) => void }) {
+export default function WorkflowBuilder({ workflowId, onRegisterRun, onRegisterReview }: { workflowId?: string; onRegisterRun?: (fn: () => void) => void; onRegisterReview?: (fn: () => void) => void }) {
   const nodeTypes = useMemo(() => nodeTypesMap(), []);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
@@ -141,7 +141,9 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
   const [validatorOpen, setValidatorOpen] = useState<boolean>(true);
   const [catOpen, setCatOpen] = useState<{ startEnd: boolean; deadEnd: boolean; binding: boolean; schema: boolean }>({ startEnd: true, deadEnd: true, binding: true, schema: false });
   const toggleCatOpen = (k: keyof typeof catOpen) => setCatOpen(prev => ({ ...prev, [k]: !prev[k] }));
-  const RIGHT_SIDEBAR_WIDTH = 300;
+  const LEFT_SIDEBAR_WIDTH = 220;
+  const RIGHT_SIDEBAR_WIDTH = 320;
+  const CANVAS_GUTTER = 16;
   const [nodeLabel, setNodeLabel] = useState<string>('');
   const [modelName, setModelName] = useState<string>('');
   type VarDef = { name: string; scope: 'local' | 'global'; vtype?: string };
@@ -231,13 +233,22 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     const isCurrent = rightTab === key;
     const isActivePress = activeTabKey === key;
     const isHover = hoverTab === key;
-    const bg = isCurrent ? '#f3f4f6' : isActivePress ? '#f3f4f6' : isHover ? '#f9fafb' : 'white';
-    const border = `2px solid ${isCurrent ? '#111827' : '#e5e7eb'}`;
+    const bg = isCurrent
+      ? 'var(--wb-tab-bg-active)'
+      : isActivePress
+        ? 'var(--wb-tab-bg-press)'
+        : isHover
+          ? 'var(--wb-tab-bg-hover)'
+          : 'var(--wb-tab-bg)';
+    const borderColor = isCurrent ? 'var(--wb-tab-border-active)' : 'var(--wb-tab-border)';
+    const border = `2px solid ${borderColor}`;
+    const color = isCurrent ? 'var(--wb-tab-text-active)' : 'var(--wb-text)';
     return {
       padding: '6px 10px',
       borderRadius: 8,
       border,
       background: bg,
+      color,
       fontWeight: 600,
       transition: 'background-color .12s ease, border-color .12s ease',
       boxSizing: 'border-box' as const,
@@ -365,12 +376,26 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
     if (simText.trim()) runPipeline(simText.trim());
   }, [findStartNodeId, followGraphAutomatically, state.context, ttsEnabled, simText, runPipeline]);
 
+  const handleRun = useCallback(() => {
+    setRightTab('simulate');
+    startFlow();
+  }, [setRightTab, startFlow]);
+
+  const handleReview = useCallback(() => {
+    setValidatorOpen(true);
+    setRightTab('validate');
+  }, [setRightTab, setValidatorOpen]);
+
   // Register external run trigger (now after startFlow exists)
   useEffect(() => {
     if (!onRegisterRun) return;
-    const run = () => { setRightTab('simulate'); startFlow(); };
-    onRegisterRun(run);
-  }, [onRegisterRun, startFlow]);
+    onRegisterRun(handleRun);
+  }, [onRegisterRun, handleRun]);
+
+  useEffect(() => {
+    if (!onRegisterReview) return;
+    onRegisterReview(handleReview);
+  }, [onRegisterReview, handleReview]);
 
   useEffect(() => {
     setNodes(prev => prev.map(n => {
@@ -569,7 +594,7 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
 
   return (
   <>
-  <div className="wb-root">
+  <div className="wb-root" style={{ width: '100%', height: '100%', minWidth: 0, minHeight: 0 }}>
       {/* Toolbox Sidebar */}
   <div className="wb-left">
         {/* Workflow Info (top of sidebar) - collapsed pill with chevron, expandable details */}
@@ -715,33 +740,35 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
         <div className="wb-divider" />
       </div>
 
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={handleEdgesChange}
-        onConnect={onConnect}
-        onNodeClick={onNodeClick}
-        onNodeDragStop={onNodeDragStop}
-        onPaneClick={() => send({ type: 'SELECT_NODE', id: undefined })}
-        nodeTypes={nodeTypes}
-        defaultEdgeOptions={{
-          markerEnd: { type: MarkerType.ArrowClosed, color: '#111827', width: 16, height: 16 },
-          style: { stroke: '#111827', strokeWidth: 1.5 },
-        }}
-        connectionLineType={shiftDown ? ConnectionLineType.Step : ConnectionLineType.Bezier}
-        fitView
-      >
-    <Controls style={{ left: 268 }} />
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-  {/* MiniMap anchored near right sidebar */}
-  <MiniMap pannable zoomable style={{ right: RIGHT_SIDEBAR_WIDTH + 8, bottom: 16, width: 200, height: 120 }} />
-      </ReactFlow>
+      <div className="wb-flow-wrapper" style={{ left: LEFT_SIDEBAR_WIDTH + CANVAS_GUTTER, right: RIGHT_SIDEBAR_WIDTH + CANVAS_GUTTER }}>
+        <ReactFlow
+          className="wb-canvas"
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={handleEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={onNodeClick}
+          onNodeDragStop={onNodeDragStop}
+          onPaneClick={() => send({ type: 'SELECT_NODE', id: undefined })}
+          nodeTypes={nodeTypes}
+          defaultEdgeOptions={{
+            markerEnd: { type: MarkerType.ArrowClosed, color: '#f1f5f9', width: 16, height: 16 },
+            style: { stroke: '#f1f5f9', strokeWidth: 1.5 },
+          }}
+          connectionLineType={shiftDown ? ConnectionLineType.Step : ConnectionLineType.Bezier}
+          fitView
+        >
+          <Controls className="wb-flow-controls" position="bottom-left" />
+          <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#3e4457" />
+          <MiniMap pannable zoomable className="wb-flow-minimap" />
+        </ReactFlow>
+      </div>
 
     {/* Right Sidebar with tabs */}
     <div className="wb-right" style={{ width: RIGHT_SIDEBAR_WIDTH }}>
         {/* Header row */}
-      <div className="wb-row wb-justify-between wb-gap-8 wb-mb-4">
+      <div className="wb-row wb-justify-between wb-gap-8 wb-mb-4 wb-actions-row">
           <div className="wb-tabs-strip" onWheel={(e)=>{ if (e.deltaY !== 0) { e.currentTarget.scrollLeft += e.deltaY; } }}>
             <button
               onClick={() => setRightTab('node')}
@@ -793,7 +820,6 @@ export default function WorkflowBuilder({ workflowId, onRegisterRun }: { workflo
               style={tabBtnStyle('io')}
             >Import/Export</button>
           </div>
-          <div />
         </div>
         <div className="wb-divider" />
 
