@@ -1,7 +1,205 @@
-/* Minimal global reset to remove default browser margins that cause page scrollbars */
-html, body, #root {
-  height: 100%;
-  margin: 0;
+
+:root {
+  color-scheme: dark;
+  --color-bg: #0f111a;
+  --color-surface: rgba(17, 24, 39, 0.85);
+  --color-panel: rgba(255, 255, 255, 0.04);
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-text: #f5f5f5;
+  --color-muted: rgba(255, 255, 255, 0.65);
+  --color-button: rgba(255, 255, 255, 0.12);
 }
 
-/* Let pages control their own overflow; no global overflow hidden here */
+[data-theme='light'] {
+  color-scheme: light;
+  --color-bg: #f5f6fb;
+  --color-surface: rgba(255, 255, 255, 0.94);
+  --color-panel: rgba(15, 17, 26, 0.05);
+  --color-border: rgba(15, 17, 26, 0.15);
+  --color-text: #131522;
+  --color-muted: rgba(19, 21, 34, 0.7);
+  --color-button: rgba(19, 21, 34, 0.08);
+
+  flex: 1;
+
+  display: flex;
+}
+
+.workspace-frame {
+  flex: 1;
+  padding: 32px;
+  display: flex;
+}
+
+@media (max-width: 768px) {
+  .workspace-frame {
+    padding: 16px;
+  }
+}
+
+.workspace-surface {
+  min-height: calc(100vh - 64px);
+  background: var(--color-panel);
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  backdrop-filter: blur(6px);
+}
+
+.workspace-card {
+  flex: 1;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-card > * {
+  flex: 1;
+  width: 100%;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.workspace-header h1 {
+  flex: 1;
+  font-size: 18px;
+  margin: 0;
+  font-weight: 700;
+}
+
+.workspace-header__back {
+  border: 1px solid var(--color-border);
+  background: var(--color-button);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.workspace-header__actions {
+  position: relative;
+}
+
+.workspace-header__split {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-panel);
+  backdrop-filter: blur(6px);
+}
+
+.workspace-header__split button {
+  border: none;
+  padding: 6px 12px;
+  font-weight: 700;
+  cursor: pointer;
+  background: transparent;
+}
+
+.workspace-header__split-divider {
+  width: 1px;
+  background: var(--color-border);
+}
+
+.workspace-header__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 170px;
+  z-index: 20;
+}
+
+.workspace-header__menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: none;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.workspace-main {
+  flex: 1;
+  padding: 16px;
+  background: transparent;
+  border-radius: 0 0 24px 24px;
+}
+
+.theme-toggle {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-surface) 85%, rgba(255, 255, 255, 0.2));
+  color: var(--color-text);
+  border-radius: 999px;
+  padding: 7px 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+  user-select: none;
+  backdrop-filter: blur(18px) saturate(140%);
+  z-index: 999;
+}
+
+.theme-toggle__checkbox {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme-toggle__track {
+  width: 28px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-panel);
+  display: inline-flex;
+  align-items: center;
+  padding: 1px;
+}
+
+.theme-toggle__thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--color-button);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  transition: transform 0.25s ease, background 0.25s ease;
+  transform: translateX(0);
+}
+
+.theme-toggle--dark .theme-toggle__thumb {
+  transform: translateX(10px);
+}
+
