@@ -4,6 +4,7 @@ import HomePage from './HomePage';
 import WorkflowBuilder from './components/WorkflowBuilder';
 import LoginPage from './pages/LoginPage';
 import ProtectedRoute from './components/ProtectedRoute';
+import LoadingScreen from './components/LoadingScreen';
 import { AuthProvider, useAuth, type AuthUser } from './state/AuthContext';
 import { ThemeProvider, useTheme } from './state/ThemeContext';
 import { getStoredProfile, type UserProfile } from './services/auth';
@@ -48,9 +49,13 @@ export default function App() {
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
-  const label = `${isDark ? 'Dark' : 'Light'} mode`;
+  const nextModeLabel = `Switch to ${isDark ? 'light' : 'dark'} mode`;
   return (
-    <label className={`theme-toggle theme-toggle--${theme}`} aria-label="Toggle color theme">
+    <label
+      className={`theme-toggle theme-toggle--${theme}`}
+      aria-label={nextModeLabel}
+      title={nextModeLabel}
+    >
       <input
         type="checkbox"
         className="theme-toggle__checkbox"
@@ -63,7 +68,6 @@ function ThemeToggle() {
           {isDark ? '🌙' : '☀️'}
         </span>
       </span>
-      <span className="theme-toggle__label">{label}</span>
     </label>
   );
 }
@@ -124,14 +128,7 @@ function WorkflowRoute() {
 }
 
 function RouteLoader({ label }: { label: string }) {
-  return (
-    <div className="workspace-loader">
-      <div className="workspace-loader__card">
-        <div className="workspace-loader__spinner" />
-        <p>{label}</p>
-      </div>
-    </div>
-  );
+  return <LoadingScreen label={label} />;
 }
 
 function useDashboardProfile(): UserProfile | null {
