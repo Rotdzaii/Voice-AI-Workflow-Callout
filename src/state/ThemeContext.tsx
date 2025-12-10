@@ -30,7 +30,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    // Mirror theme onto class list so Tailwind's class-based dark mode reacts immediately
+    root.classList.toggle('dark', theme === 'dark');
+    root.classList.toggle('light', theme === 'light');
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch (err) {

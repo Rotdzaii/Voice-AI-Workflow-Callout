@@ -272,7 +272,11 @@ export function getAvatarUrl(profile?: UserProfile | null): string | undefined {
   if (profile.provider === 'github' && profile.username) {
     return `https://github.com/${encodeURIComponent(profile.username)}.png`;
   }
-  if (profile.email) {
+  if (profile.provider === 'google' && profile.email) {
+    return `https://unavatar.io/google/${encodeURIComponent(profile.email)}`;
+  }
+  // Avoid pulling generic gravatars for local/demo users; fall back to initials instead
+  if (profile.provider && profile.provider !== 'local' && profile.email) {
     return `https://unavatar.io/${encodeURIComponent(profile.email)}`;
   }
   return undefined;

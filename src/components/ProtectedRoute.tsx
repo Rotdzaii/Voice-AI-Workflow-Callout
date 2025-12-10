@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../state/AuthContext';
+import LoadingScreen from './LoadingScreen';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -12,9 +13,10 @@ export default function ProtectedRoute({ children, redirectTo = '/login' }: Prot
 
   if (isLoading) {
     return (
-      <div style={{ display: 'grid', placeItems: 'center', minHeight: '100vh', fontSize: 16 }}>
-        Checking authentication...
-      </div>
+      <LoadingScreen
+        label="Đang chuẩn bị workspace..."
+        subLabel="Vui lòng chờ trong giây lát"
+      />
     );
   }
 

@@ -9,8 +9,12 @@ export type StartCallPayload = {
 
 const API_BASE = apiBase().replace(/\/$/, '');
 
+function resolveBase(): string {
+  return (apiBase() || API_BASE).replace(/\/$/, '');
+}
+
 async function request<T = any>(path: string, init?: RequestInit): Promise<T> {
-  const base = (apiBase() || API_BASE).replace(/\/$/, '');
+  const base = resolveBase();
   const url = `${base}${path}`;
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -18,6 +22,18 @@ async function request<T = any>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(detail || `${res.status} ${res.statusText}`);
   }
   return res.json().catch(() => ({} as T));
+}
+
+async function requestWithResponse<T = any>(path: string, init?: RequestInit): Promise<{ data: T; headers: Headers }> {
+  const base = resolveBase();
+  const url = `${base}${path}`;
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
+  const data = await res.json().catch(() => ({} as T));
+  return { data, headers: res.headers };
 }
 
 export const api = {
@@ -37,6 +53,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
     list: (token: string) => request('/workflows', { headers: { Authorization: `Bearer ${token}` } }),
+    listWithMeta: (token: string) => requestWithResponse('/workflows', { headers: { Authorization: `Bearer ${token}` } }),
     get: (token: string, id: string) => request(`/workflows/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${token}` } }),
     update: (token: string, id: string, patch: unknown) => request(`/workflows/${encodeURIComponent(id)}`, {
       method: 'PUT',
