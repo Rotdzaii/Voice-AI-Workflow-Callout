@@ -1,14 +1,14 @@
 import { useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
-import HomePage from './HomePage';
-import WorkflowBuilder from './components/WorkflowBuilder';
+import HomePage from './pages/HomePage';
+import WorkflowBuilder from './features/workflow/components/WorkflowBuilder';
 import LoginPage from './pages/LoginPage';
-import ProtectedRoute from './components/ProtectedRoute';
-import LoadingScreen from './components/LoadingScreen';
+import ProtectedRoute from './components/layout/ProtectedRoute';
+import LoadingScreen from './components/ui/LoadingScreen';
 import { AuthProvider, useAuth, type AuthUser } from './state/AuthContext';
 import { ThemeProvider, useTheme } from './state/ThemeContext';
 import { getStoredProfile, type UserProfile } from './services/auth';
-import ReportPage from './ReportPage';
+import ReportPage from './pages/ReportPage';
 import SettingsPage from './pages/SettingsPage';
 
 export default function App() {

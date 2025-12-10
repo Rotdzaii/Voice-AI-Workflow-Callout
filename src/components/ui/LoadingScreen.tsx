@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { useTheme } from '../state/ThemeContext';
+import { useTheme } from '../../state/ThemeContext';
 
 export type LoadingScreenProps = {
   label?: string;

@@ -22,11 +22,11 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
-import { getAvatarUrl, logout, type UserProfile } from './services/auth';
-import api from './services/api';
-import { subscribeToWorkflowEvents, type WorkflowRealtimePayload } from './services/realtime';
-import type { WorkflowRecord } from './types/workflow';
-import { useTheme } from './state/ThemeContext';
+import { getAvatarUrl, logout, type UserProfile } from '../services/auth';
+import api from '../services/api';
+import { subscribeToWorkflowEvents, type WorkflowRealtimePayload } from '../services/realtime';
+import type { WorkflowRecord } from '../types/workflow';
+import { useTheme } from '../state/ThemeContext';
 
 type WorkflowStatus = 'active' | 'draft' | 'error';
 type FilterValue = WorkflowStatus | 'all';
