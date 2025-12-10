@@ -10,19 +10,23 @@ type WorkflowRow = {
   updated_at?: string;
 };
 
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+export const isRealtimeConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+
 let client: SupabaseClient | null = null;
+let missingConfigLogged = false;
 
 function ensureClient(): SupabaseClient | null {
   if (client) return client;
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) {
-    if (import.meta.env.DEV) {
-      console.warn('[realtime] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
+  if (!isRealtimeConfigured) {
+    if (import.meta.env.DEV && !missingConfigLogged) {
+      console.info('[realtime] Supabase realtime disabled: missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY');
+      missingConfigLogged = true;
     }
     return null;
   }
-  client = createClient(url, key, {
+  client = createClient(supabaseUrl as string, supabaseAnonKey as string, {
     auth: {
       persistSession: false,
       detectSessionInUrl: false,
@@ -38,6 +42,9 @@ export type WorkflowRealtimePayload = RealtimePostgresChangesPayload<WorkflowRow
 export type WorkflowEventHandler = (payload: WorkflowRealtimePayload) => void;
 
 export function subscribeToWorkflowEvents(handler?: WorkflowEventHandler | null): () => void {
+  if (!isRealtimeConfigured) {
+    return () => {};
+  }
   const supabase = ensureClient();
   if (!supabase) return () => {};
 

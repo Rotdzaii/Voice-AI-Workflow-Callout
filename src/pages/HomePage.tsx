@@ -24,7 +24,7 @@ import {
 
 import { getAvatarUrl, logout, type UserProfile } from '../services/auth';
 import api from '../services/api';
-import { subscribeToWorkflowEvents, type WorkflowRealtimePayload } from '../services/realtime';
+import { isRealtimeConfigured, subscribeToWorkflowEvents, type WorkflowRealtimePayload } from '../services/realtime';
 import type { WorkflowRecord } from '../types/workflow';
 import { useTheme } from '../state/ThemeContext';
 
@@ -207,9 +207,12 @@ export default function HomePage({ profile }: HomePageProps) {
 
   useEffect(() => {
     void loadWorkflows();
-  }, [loadWorkflows]);
+  }, [isRealtimeConfigured, loadWorkflows]);
 
   useEffect(() => {
+    if (!isRealtimeConfigured) {
+      return () => {};
+    }
     const unsubscribe = subscribeToWorkflowEvents((payload) => {
       const notification = buildNotificationFromPayload(payload);
       if (notification) {

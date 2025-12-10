@@ -1,5 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import ReactFlow, {
+  Background,
+  Controls,
+  MiniMap,
+  MarkerType,
+  addEdge,
+  useEdgesState,
+  useNodesState,
+  type Connection,
+  type Edge,
+  type Node,
+  type NodeTypes,
+  type NodeMouseHandler,
+  type ReactFlowInstance,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
 import {
   AlertCircle,
   ArrowLeft,
@@ -34,6 +50,13 @@ const statusTokens: Record<WorkflowStatus, { label: string; bg: string; dot: str
     text: 'text-rose-100',
   },
 };
+
+interface BuilderNodeData {
+  label: string;
+  description: string;
+  icon: string;
+  category: string;
+}
 
 const paletteNodes = [
   {
@@ -72,6 +95,31 @@ const paletteNodes = [
 
 type PaletteNode = typeof paletteNodes[number];
 
+const defaultNodeTypes: NodeTypes = {};
+
+const ensureNodeData = (data: unknown): BuilderNodeData => {
+  const base = (data ?? {}) as Partial<BuilderNodeData>;
+  return {
+    label: base.label ?? 'Untitled node',
+    description: base.description ?? '',
+    icon: base.icon ?? '🧩',
+    category: base.category ?? 'custom',
+  };
+};
+
+const toNodeArray = (graph: WorkflowRecord['nodes']): Node<BuilderNodeData>[] => {
+  if (!Array.isArray(graph)) return [];
+  return (graph as Node<BuilderNodeData>[]).map((node) => ({
+    ...node,
+    data: ensureNodeData(node.data),
+  }));
+};
+
+const toEdgeArray = (graph: WorkflowRecord['edges']): Edge[] => {
+  if (!Array.isArray(graph)) return [];
+  return graph as Edge[];
+};
+
 interface WorkflowBuilderProps {
   workflowId?: string;
   onBack?: () => void;
@@ -89,22 +137,17 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [selectedNode, setSelectedNode] = useState<PaletteNode | null>(null);
-  const [nodeLabel, setNodeLabel] = useState('');
-  const [nodeDescription, setNodeDescription] = useState('');
-  const canvasRef = useRef<HTMLDivElement | null>(null);
-
-  const canvasPattern = useMemo(
-    () => ({
-      backgroundImage: isDark
-        ? 'radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)'
-        : 'radial-gradient(circle, rgba(15,23,42,0.08) 1px, transparent 1px)',
-      backgroundSize: '32px 32px',
-    }),
-    [isDark],
-  );
+  const [nodes, setNodes, onNodesChangeInternal] = useNodesState<BuilderNodeData>([]);
+  const [edges, setEdges, onEdgesChangeInternal] = useEdgesState([]);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const reactFlowWrapper = useRef<HTMLDivElement | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const statusBadge = statusTokens[status];
+  const defaultEdgeOptions = useMemo(
+    () => ({ type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } }),
+    [],
+  );
 
   const backHome = useCallback(() => {
     if (onBack) {
@@ -170,10 +213,23 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
   }, [workflowId]);
 
   useEffect(() => {
-    if (!selectedNode) return;
-    setNodeLabel(selectedNode.title);
-    setNodeDescription(selectedNode.copy);
-  }, [selectedNode]);
+    if (!workflow) {
+      setNodes([]);
+      setEdges([]);
+      setSelectedNodeId(null);
+      return;
+    }
+    setNodes(toNodeArray(workflow.nodes));
+    setEdges(toEdgeArray(workflow.edges));
+    setSelectedNodeId(null);
+    setHasUnsavedChanges(false);
+  }, [workflow, setNodes, setEdges]);
+
+  useEffect(() => {
+    if (selectedNodeId && !nodes.some((node) => node.id === selectedNodeId)) {
+      setSelectedNodeId(null);
+    }
+  }, [nodes, selectedNodeId]);
 
   const handleSave = useCallback(async () => {
     const token = getAuthToken();
@@ -188,8 +244,8 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
       const payload: WorkflowUpsertPayload = {
         name: name.trim() || 'Untitled Workflow',
         status,
-        nodes: workflow?.nodes ?? [],
-        edges: workflow?.edges ?? [],
+        nodes,
+        edges,
       };
       const raw = workflowId
         ? await api.workflows.update(token, workflowId, payload)
@@ -213,19 +269,193 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
     }
   }, [workflowId, workflow, name, status, navigate, normalizeWorkflow]);
 
-  const handlePaletteClick = useCallback((item: PaletteNode) => {
-    setSelectedNode(item);
-  }, []);
-
   const handleNameInput = useCallback((value: string) => {
     setName(value);
     setHasUnsavedChanges(true);
   }, []);
 
+  const handleRunWorkflow = useCallback(async () => {
+    const token = getAuthToken();
+    if (!token) {
+      setError('❌ Unauthorized. Please login again.');
+      if (typeof window !== 'undefined') {
+        window.alert('Please log in to run this workflow.');
+      }
+      return;
+    }
+
+    const payload = {
+      workflow_id: workflow?.id || 'draft-1',
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        type: node.type,
+        data: ensureNodeData(node.data),
+      })),
+      edges: edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: edge.type,
+      })),
+    };
+
+    console.log('🚀 Workflow Payload:', payload);
+    setError(null);
+    try {
+      const response = await fetch('http://localhost:8000/api/v1/workflows/run', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      let data: unknown = null;
+      try {
+        data = await response.json();
+      } catch {
+        // ignore malformed response bodies
+      }
+      console.log('🎯 Workflow Run Response:', data);
+
+      if (response.ok) {
+        setSuccess('✅ Workflow sent to Backend!');
+        setTimeout(() => setSuccess(null), 2800);
+        return;
+      }
+
+      if (response.status === 401) {
+        setError('❌ Unauthorized. Please login again.');
+        return;
+      }
+
+      setError('❌ Failed to send workflow.');
+    } catch (err) {
+      console.error('Workflow run failed', err);
+      setError('❌ Failed to send workflow.');
+    }
+  }, [workflow, nodes, edges]);
+
   const handleStatusChange = useCallback((value: WorkflowStatus) => {
     setStatus(value);
     setHasUnsavedChanges(true);
   }, []);
+
+  const handleNodesChange = useCallback(
+    (changes: Parameters<typeof onNodesChangeInternal>[0]) => {
+      setHasUnsavedChanges(true);
+      onNodesChangeInternal(changes);
+    },
+    [onNodesChangeInternal],
+  );
+
+  const handleEdgesChange = useCallback(
+    (changes: Parameters<typeof onEdgesChangeInternal>[0]) => {
+      setHasUnsavedChanges(true);
+      onEdgesChangeInternal(changes);
+    },
+    [onEdgesChangeInternal],
+  );
+
+  const handleConnect = useCallback(
+    (connection: Connection) => {
+      setHasUnsavedChanges(true);
+      setEdges((eds) => addEdge({ ...connection, type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } }, eds));
+    },
+    [setEdges],
+  );
+
+  const handleInit = useCallback((instance: ReactFlowInstance) => {
+    setReactFlowInstance(instance);
+  }, []);
+
+  const handleDragStart = useCallback((event: DragEvent<HTMLElement>, item: PaletteNode) => {
+    event.dataTransfer.setData('application/reactflow', JSON.stringify(item));
+    event.dataTransfer.effectAllowed = 'copy';
+  }, []);
+
+  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      if (!reactFlowWrapper.current || !reactFlowInstance) return;
+      const raw = event.dataTransfer.getData('application/reactflow');
+      if (!raw) return;
+      const paletteNode = JSON.parse(raw) as PaletteNode;
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+
+      const newNode: Node<BuilderNodeData> = {
+        id: `${paletteNode.key}-${Date.now()}`,
+        type: 'default',
+        position,
+        data: {
+          label: paletteNode.title,
+          description: paletteNode.copy,
+          icon: paletteNode.icon,
+          category: paletteNode.type,
+        },
+      };
+
+      setNodes((current) => current.concat(newNode));
+      setSelectedNodeId(newNode.id);
+      setHasUnsavedChanges(true);
+    },
+    [reactFlowInstance, setNodes],
+  );
+
+  const handleNodeClick = useCallback<NodeMouseHandler>((_, node) => {
+    setSelectedNodeId(node.id);
+  }, []);
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, []);
+
+  const selectedNode = useMemo(() => nodes.find((node) => node.id === selectedNodeId) ?? null, [nodes, selectedNodeId]);
+  const selectedNodeData = selectedNode ? ensureNodeData(selectedNode.data) : null;
+
+  const updateSelectedNodeData = useCallback(
+    (changes: Partial<BuilderNodeData>) => {
+      if (!selectedNodeId) return;
+      setNodes((current) =>
+        current.map((node) =>
+          node.id === selectedNodeId
+            ? {
+                ...node,
+                data: {
+                  ...ensureNodeData(node.data),
+                  ...changes,
+                },
+              }
+            : node,
+        ),
+      );
+      setHasUnsavedChanges(true);
+    },
+    [selectedNodeId, setNodes],
+  );
+
+  const handleNodeLabelChange = useCallback(
+    (value: string) => {
+      updateSelectedNodeData({ label: value });
+    },
+    [updateSelectedNodeData],
+  );
+
+  const handleNodeDescriptionChange = useCallback(
+    (value: string) => {
+      updateSelectedNodeData({ description: value });
+    },
+    [updateSelectedNodeData],
+  );
 
   const isBusy = loading || saving;
 
@@ -295,6 +525,7 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
             </button>
             <button
               type="button"
+              onClick={handleRunWorkflow}
               className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:from-blue-600 hover:to-purple-700"
             >
               <Play size={16} />
@@ -341,12 +572,13 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
                   <button
                     key={item.key}
                     type="button"
-                    onClick={() => handlePaletteClick(item)}
+                    draggable
+                    onDragStart={(event) => handleDragStart(event, item)}
                     className={`w-full rounded-2xl border px-4 py-3 text-left transition hover:scale-[1.02] ${
                       isDark
                         ? 'border-white/10 bg-gradient-to-r from-slate-800 to-slate-700'
                         : 'border-slate-200 bg-gradient-to-r from-slate-100 to-white'
-                    } ${selectedNode?.key === item.key ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-transparent' : ''}`}
+                    }`}
                   >
                     <div className="flex items-start gap-3">
                       <span className="text-xl">{item.icon}</span>
@@ -371,32 +603,45 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
             </div>
             <div className="flex-1 overflow-hidden">
               <div
-                ref={canvasRef}
-                className={`relative m-4 flex h-full min-h-[480px] flex-col overflow-hidden rounded-[32px] border ${
+                ref={reactFlowWrapper}
+                className={`relative m-4 flex h-full min-h-[480px] flex-1 overflow-hidden rounded-[32px] border ${
                   isDark ? 'border-white/10 bg-slate-950/60 text-white' : 'border-slate-200 bg-white/90 text-slate-900'
                 }`}
-                style={canvasPattern}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                style={{
+                  backgroundImage: `radial-gradient(circle, ${
+                    isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'
+                  } 1px, transparent 1px)`,
+                  backgroundSize: '40px 40px',
+                }}
               >
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent" />
-                <div className="relative z-10 flex h-full flex-col items-center justify-center p-6 text-center">
-                  {loading ? (
-                    <div className="flex flex-col items-center gap-3">
-                      <Loader2 className="h-10 w-10 animate-spin" />
-                      <p className="text-sm opacity-70">Loading workflow graph...</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="rounded-full border px-4 py-1 text-xs font-semibold uppercase tracking-wide opacity-70">
-                        React Flow Mount Point
-                      </div>
-                      <h1 className="mt-4 text-3xl font-bold">Drop nodes or wire React Flow here</h1>
-                      <p className="mt-2 max-w-2xl text-sm opacity-80">
-                        This canvas keeps all drag-and-drop handlers intact. Mount ReactFlowProvider and onDrop logic inside this panel to unlock
-                        the full workflow editing experience without fighting the layout.
-                      </p>
-                    </>
-                  )}
-                </div>
+                {loading && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-slate-950/30">
+                    <Loader2 className="h-10 w-10 animate-spin" />
+                    <p className="text-sm opacity-80">Loading workflow graph...</p>
+                  </div>
+                )}
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  onNodesChange={handleNodesChange}
+                  onEdgesChange={handleEdgesChange}
+                  onConnect={handleConnect}
+                  onNodeClick={handleNodeClick}
+                  onPaneClick={handlePaneClick}
+                  onInit={handleInit}
+                  fitView
+                  fitViewOptions={{ padding: 0.2, minZoom: 0.5, maxZoom: 1.8 }}
+                  defaultEdgeOptions={defaultEdgeOptions}
+                  nodeTypes={defaultNodeTypes}
+                  proOptions={{ hideAttribution: true }}
+                  className="reactflow-subtle"
+                >
+                  <Background gap={32} color={isDark ? 'rgba(148,163,184,0.3)' : 'rgba(15,23,42,0.15)'} />
+                  <Controls showInteractive={false} />
+                  <MiniMap pannable zoomable />
+                </ReactFlow>
               </div>
             </div>
           </main>
@@ -417,18 +662,15 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
               </div>
               <Settings size={18} className={isDark ? 'text-slate-200' : 'text-slate-600'} />
             </div>
-            {selectedNode ? (
-              <form className="space-y-5 px-6 py-6">
+            {selectedNodeData ? (
+              <div className="space-y-5 px-6 py-6">
                 <div>
                   <label className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                     Label
                   </label>
                   <input
-                    value={nodeLabel}
-                    onChange={(e) => {
-                      setNodeLabel(e.target.value);
-                      setHasUnsavedChanges(true);
-                    }}
+                    value={selectedNodeData.label}
+                    onChange={(e) => handleNodeLabelChange(e.target.value)}
                     className={`mt-1 w-full rounded-2xl border px-4 py-2 text-sm outline-none ${
                       isDark ? 'border-white/15 bg-white/5 text-white focus:border-blue-400' : 'border-slate-200 bg-white focus:border-blue-500'
                     }`}
@@ -439,38 +681,22 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
                     Description
                   </label>
                   <textarea
-                    value={nodeDescription}
-                    onChange={(e) => {
-                      setNodeDescription(e.target.value);
-                      setHasUnsavedChanges(true);
-                    }}
+                    value={selectedNodeData.description}
+                    onChange={(e) => handleNodeDescriptionChange(e.target.value)}
                     className={`mt-1 w-full rounded-2xl border px-4 py-2 text-sm outline-none ${
                       isDark ? 'border-white/15 bg-white/5 text-white focus:border-blue-400' : 'border-slate-200 bg-white focus:border-blue-500'
                     }`}
                     rows={3}
                   />
                 </div>
-                <div>
-                  <label className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                    Model
-                  </label>
-                  <select
-                    className={`mt-1 w-full rounded-2xl border px-4 py-2 text-sm outline-none ${
-                      isDark ? 'border-white/15 bg-white/5 text-white focus:border-blue-400' : 'border-slate-200 bg-white focus:border-blue-500'
-                    }`}
-                  >
-                    <option>gpt-4o-mini</option>
-                    <option>gemini-1.5-pro</option>
-                    <option>claude-3.5-sonnet</option>
-                  </select>
+                <div className="flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-medium">
+                  <span className="text-2xl">{selectedNodeData.icon}</span>
+                  <div className="flex-1">
+                    <p className="text-xs uppercase tracking-wide opacity-75">Category</p>
+                    <p>{selectedNodeData.category}</p>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  className="w-full rounded-2xl border border-blue-400/40 bg-blue-500/10 py-2 text-sm font-semibold text-blue-100"
-                >
-                  Attach to canvas
-                </button>
-              </form>
+              </div>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
                 <Grid3x3 size={32} className={isDark ? 'text-slate-600' : 'text-slate-400'} />
@@ -519,5 +745,29 @@ export default function WorkflowBuilder({ workflowId, onBack }: WorkflowBuilderP
 
 function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem('auth_token');
+  const storage = window.localStorage;
+  const direct = storage.getItem('auth_token');
+  if (direct) return direct;
+
+  const fallback = storage.getItem('access_token');
+  if (fallback) return fallback;
+
+  const supabaseRaw = storage.getItem('supabase.auth.token');
+  if (supabaseRaw) {
+    try {
+      const parsed = JSON.parse(supabaseRaw);
+      const token =
+        parsed?.currentSession?.access_token ||
+        parsed?.currentSession?.accessToken ||
+        parsed?.access_token ||
+        parsed?.accessToken;
+      if (typeof token === 'string' && token.length > 0) {
+        return token;
+      }
+    } catch {
+      // ignore parse failures
+    }
+  }
+
+  return null;
 }
