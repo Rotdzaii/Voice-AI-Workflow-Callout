@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { useMemo } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, useParams } from 'react-router-dom';
 import HomePage from './HomePage';
 import WorkflowBuilder from './components/WorkflowBuilder';
 import LoginPage from './pages/LoginPage';
@@ -8,6 +8,8 @@ import LoadingScreen from './components/LoadingScreen';
 import { AuthProvider, useAuth, type AuthUser } from './state/AuthContext';
 import { ThemeProvider, useTheme } from './state/ThemeContext';
 import { getStoredProfile, type UserProfile } from './services/auth';
+import ReportPage from './ReportPage';
+import SettingsPage from './pages/SettingsPage';
 
 export default function App() {
   return (
@@ -31,7 +33,39 @@ export default function App() {
                   path="/workflow"
                   element={(
                     <ProtectedRoute>
-                      <WorkflowRoute />
+                      <WorkflowBuilderRoute />
+                    </ProtectedRoute>
+                  )}
+                />
+                <Route
+                  path="/builder"
+                  element={(
+                    <ProtectedRoute>
+                      <WorkflowBuilderRoute />
+                    </ProtectedRoute>
+                  )}
+                />
+                <Route
+                  path="/builder/:workflowId"
+                  element={(
+                    <ProtectedRoute>
+                      <WorkflowBuilderRoute />
+                    </ProtectedRoute>
+                  )}
+                />
+                <Route
+                  path="/reports"
+                  element={( 
+                    <ProtectedRoute>
+                      <ReportsRoute />
+                    </ProtectedRoute>
+                  )}
+                />
+                <Route
+                  path="/settings"
+                  element={( 
+                    <ProtectedRoute>
+                      <SettingsRoute />
                     </ProtectedRoute>
                   )}
                 />
@@ -100,29 +134,37 @@ function LoginRoute() {
 }
 
 function HomeRoute() {
-  const navigate = useNavigate();
   const profile = useDashboardProfile();
+  return <HomePage profile={profile} />;
+}
+
+function WorkflowBuilderRoute() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const params = useParams<{ workflowId?: string }>();
+  const workflowId = params.workflowId ?? (location.state as { workflowId?: string } | null)?.workflowId;
 
   return (
-    <HomePage
-      profile={profile}
-      onOpenWorkflow={(wf) => navigate('/workflow', { state: { workflowId: wf?.id } })}
+    <WorkflowBuilder
+      workflowId={workflowId}
+      onBack={() => navigate('/home')}
     />
   );
 }
 
-function WorkflowRoute() {
+function ReportsRoute() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const workflowId = (location.state as { workflowId?: string } | null)?.workflowId;
-
   return (
-    <div className="workspace-frame">
-      <BuilderWithHeader
-        workflowId={workflowId}
-        onBack={() => navigate('/home')}
-        onReview={() => navigate('/home')}
-      />
+    <div className="reports-frame">
+      <ReportPage onGoHome={() => navigate('/home')} />
+    </div>
+  );
+}
+
+function SettingsRoute() {
+  return (
+    <div className="settings-frame">
+      <SettingsPage />
     </div>
   );
 }
@@ -151,74 +193,4 @@ function mapAuthUserToProfile(user: AuthUser | null): UserProfile | null {
     provider: typeof user.provider === 'string' ? user.provider : undefined,
     username: typeof user.username === 'string' ? user.username : undefined,
   } satisfies UserProfile;
-}
-
-function BuilderWithHeader({ onBack, onReview, workflowId }: { onBack: () => void; onReview: () => void; workflowId?: string }) {
-  const [runTest, setRunTest] = useState<(() => void) | null>(null);
-  const registerRun = useCallback((fn: () => void) => setRunTest(() => fn), []);
-  const [showMenu, setShowMenu] = useState(false);
-  const [hoverSplit, setHoverSplit] = useState<{ play: boolean; more: boolean }>({ play: false, more: false });
-  const [activeSplit, setActiveSplit] = useState<{ play: boolean; more: boolean }>({ play: false, more: false });
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(e.target as Node)) setShowMenu(false);
-    };
-    document.addEventListener('mousedown', onDocClick);
-    return () => document.removeEventListener('mousedown', onDocClick);
-  }, []);
-  const playBg = activeSplit.play ? '#e5e7eb' : hoverSplit.play ? '#f3f4f6' : 'white';
-  const moreBg = activeSplit.more ? '#e5e7eb' : hoverSplit.more ? '#f3f4f6' : 'white';
-
-  return (
-    <div className="workspace-surface">
-      <header className="workspace-header">
-        <button onClick={onBack} className="workspace-header__back">← Back</button>
-        <h1>Workflow Builder</h1>
-        <div ref={menuRef} className="workspace-header__actions">
-          <div className="workspace-header__split">
-            <button
-              title="Run test"
-              onClick={() => runTest?.()}
-              onMouseEnter={() => setHoverSplit((s) => ({ ...s, play: true }))}
-              onMouseLeave={() => { setHoverSplit((s) => ({ ...s, play: false })); setActiveSplit((s) => ({ ...s, play: false })); }}
-              onMouseDown={() => setActiveSplit((s) => ({ ...s, play: true }))}
-              onMouseUp={() => setActiveSplit((s) => ({ ...s, play: false }))}
-              style={{ background: playBg }}
-            >
-              ▶
-            </button>
-            <div className="workspace-header__split-divider" />
-            <button
-              title="More"
-              onClick={() => setShowMenu((v) => !v)}
-              onMouseEnter={() => setHoverSplit((s) => ({ ...s, more: true }))}
-              onMouseLeave={() => { setHoverSplit((s) => ({ ...s, more: false })); setActiveSplit((s) => ({ ...s, more: false })); }}
-              onMouseDown={() => setActiveSplit((s) => ({ ...s, more: true }))}
-              onMouseUp={() => setActiveSplit((s) => ({ ...s, more: false }))}
-              style={{ background: moreBg }}
-            >
-              ⋯
-            </button>
-          </div>
-          {showMenu && (
-            <div className="workspace-header__menu">
-              <button onClick={() => { runTest?.(); setShowMenu(false); }}>
-                <span>▶</span>
-                <span>Run test</span>
-              </button>
-              <button onClick={() => { onReview(); setShowMenu(false); }}>
-                <span>👁</span>
-                <span>Review</span>
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-      <main className="workspace-main">
-        <WorkflowBuilder workflowId={workflowId} onRegisterRun={registerRun} />
-      </main>
-    </div>
-  );
 }

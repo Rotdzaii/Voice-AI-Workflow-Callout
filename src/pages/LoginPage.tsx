@@ -1,8 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
-import { ArrowLeft, Mail, Lock, Loader2, Chrome, Github } from "lucide-react";
+import { ArrowLeft, Mail, Lock, Loader2 } from "lucide-react";
 import { startGoogleLogin, startGithubLogin, loginWithCredentials } from "../services/auth";
 import { useTheme } from "../state/ThemeContext";
+import { FcGoogle } from "react-icons/fc";
+import { FaGithub } from "react-icons/fa";
 
 const palettes = {
   dark: {
@@ -202,7 +204,7 @@ export default function LoginPage({ onBack }: LoginPageProps) {
                   disabled={isLoading}
                   style={styles.secondaryButton(isLoading)}
                 >
-                  <Chrome size={16} style={{ marginRight: 8 }} />
+                  <FcGoogle size={20} style={{ marginRight: 8 }} />
                   Google
                 </button>
                 <button
@@ -211,7 +213,7 @@ export default function LoginPage({ onBack }: LoginPageProps) {
                   disabled={isLoading}
                   style={styles.secondaryButton(isLoading)}
                 >
-                  <Github size={16} style={{ marginRight: 8 }} />
+                  <FaGithub size={20} style={{ marginRight: 8 }} />
                   GitHub
                 </button>
               </div>
